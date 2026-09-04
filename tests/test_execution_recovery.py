@@ -12,12 +12,14 @@ class Result:
     execution_id: str
     request_digest: str | None
     outcome: str
+    adapter: str = "fake"
 
     def canonical_payload(self):
         return {
             "execution_id": self.execution_id,
             "request_digest": self.request_digest,
             "outcome": self.outcome,
+            "adapter": self.adapter,
         }
 
 
@@ -29,7 +31,7 @@ class Adapter:
         return Result(request.execution_id, request.digest, "NO_COUNTEREXAMPLE")
 
     def rehydrate_result(self, *, payload, request):
-        return Result(payload["execution_id"], payload["request_digest"], payload["outcome"])
+        return Result(payload["execution_id"], payload["request_digest"], payload["outcome"], payload["adapter"])
 
 
 def request():
@@ -51,6 +53,7 @@ def test_recovery_rehydrates_exact_durable_receipt_without_execution():
             "execution_id": req.execution_id,
             "request_digest": req.digest,
             "outcome": "NO_COUNTEREXAMPLE",
+            "adapter": "fake",
         }
     }
     adapter = Adapter()
@@ -86,6 +89,7 @@ def test_recovery_rejects_receipt_bound_to_different_request():
             "execution_id": req.execution_id,
             "request_digest": "execution-request:wrong",
             "outcome": "NO_COUNTEREXAMPLE",
+            "adapter": "fake",
         }
     }
     gateway = ExternalExecutionGateway(
@@ -115,6 +119,7 @@ def test_recovery_never_runs_adapter():
             "execution_id": req.execution_id,
             "request_digest": req.digest,
             "outcome": "NO_COUNTEREXAMPLE",
+            "adapter": "fake",
         }
     }
     adapter = Adapter()
