@@ -52,9 +52,10 @@ def test_unbound_evidence_cannot_influence_update():
 
 def test_neutral_evidence_does_not_change_belief():
     item = Hypothesis("hypothesis:x", "x", 0.5)
-    v = verification(VerificationState.SUPPORTED, ("e1",), (), ())
-    with pytest.raises(ValueError):
-        update_hypothesis(item, v, [evidence("e1", VerificationRole.NEUTRAL)])
+    v = verification(VerificationState.UNRESOLVED, ("e1",), (), ())
+    updated, _ = update_hypothesis(item, v, [evidence("e1", VerificationRole.NEUTRAL)])
+    assert updated.belief == item.belief
+    assert updated.state == HypothesisState.UNRESOLVED
 
 
 def test_discovery_confidence_is_not_used_as_initial_belief():
