@@ -1,30 +1,15 @@
 """Bounded information-gain planning primitives.
 
-Execution lifecycle integration is intentionally kept outside this module; an
-Observation is a plan, not permission to execute it.
+An Observation is a plan, not permission to execute it. Persistent hypothesis
+state lives in :mod:`cydra.hypothesis`; this module supplies planning views and
+keeps the historical planner-facing ``Hypothesis`` API compatible.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 import math
 
-
-@dataclass(frozen=True)
-class Hypothesis:
-    name: str
-    probability: float
-    predictions: dict[str, dict[str, float]]
-    state: str = "unresolved"
-
-    @property
-    def hypothesis_id(self) -> str:
-        return f"hypothesis:{self.name}"
-
-    def __post_init__(self):
-        if not self.name.strip():
-            raise ValueError("name must not be empty")
-        if not 0.0 <= self.probability <= 1.0:
-            raise ValueError("probability must be between 0 and 1")
+from .hypothesis import Hypothesis
 
 
 @dataclass(frozen=True)
@@ -38,7 +23,7 @@ class Observation:
     target_ids: tuple[str, ...] = ()
     rationale: str = ""
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not self.name.strip():
             raise ValueError("observation name must not be empty")
         if self.cost <= 0:
@@ -77,15 +62,15 @@ def information_gain(hypotheses: list[Hypothesis], observation: Observation) -> 
         hypotheses = [h for h in hypotheses if h.hypothesis_id in wanted]
         if {h.hypothesis_id for h in hypotheses} != wanted:
             return None
-    total = sum(max(0.0, h.probability) for h in hypotheses)
+    total = sum(max(0.0, h.belief) for h in hypotheses)
     if total <= 0:
         return None
-    priors = {h.name: max(0.0, h.probability) / total for h in hypotheses}
+    priors = {h.name: max(0.0, h.belief) / total for h in hypotheses}
     prior = _entropy(priors.values())
     expected = 0.0
     known = False
     for outcome in observation.outcomes:
-        likelihood = {h.name: max(0.0, h.predictions.get(observation.name, {}).get(outcome, 0.0)) for h in hypotheses}
+        likelihood = {h.name: max(0.0, h.planning_predictions.get(observation.name, {}).get(outcome, 0.0)) for h in hypotheses}
         if not any(likelihood.values()):
             continue
         known = True
