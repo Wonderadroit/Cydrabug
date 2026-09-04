@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
+import subprocess
 from typing import Any, Iterator
 
 from .project_build import BuildIdentity, BuildResult
@@ -121,11 +122,11 @@ def load_foundry_build_info(root: str | Path) -> tuple[SolidityBuildInfoSource, 
 
 def _git_state(root: Path) -> tuple[str | None, str]:
     try:
-        revision = subprocess_run = __import__("subprocess").run(
+        revision = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True,
             text=True, check=False,
         )
-        status = __import__("subprocess").run(
+        status = subprocess.run(
             ["git", "status", "--porcelain", "--untracked-files=all"],
             cwd=root, capture_output=True, text=True, check=False,
         )
@@ -147,12 +148,7 @@ def load_bound_foundry_build_info(
     expected_revision: str,
     allowed_source_prefixes: tuple[str, ...] = ("src/",),
 ) -> tuple[SolidityBuildInfoSource, ...]:
-    """Accept compiler AST only when the exact target build and source are bound.
-
-    The gate rejects stale/foreign artifacts, dirty or wrong revisions, changed
-    configuration, failed builds, compiler mismatches, and source content that
-    does not exactly equal the build input in the target checkout.
-    """
+    """Accept compiler AST only when the exact target build and source are bound."""
     root = Path(root).resolve()
     if build_identity.repository != expected_repository:
         raise RuntimeError("build repository identity mismatch")
