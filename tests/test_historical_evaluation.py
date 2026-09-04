@@ -12,6 +12,18 @@ def evaluation():
     )
 
 
+def through_freeze(item):
+    for phase in (
+        EvaluationPhase.UNDERSTANDING,
+        EvaluationPhase.REASONING,
+        EvaluationPhase.INVESTIGATION,
+        EvaluationPhase.VERIFICATION,
+        EvaluationPhase.FROZEN,
+    ):
+        item = item.advance(phase)
+    return item
+
+
 def test_evaluation_is_blind_before_freeze():
     item = evaluation()
     assert item.blind
@@ -24,13 +36,13 @@ def test_oracle_cannot_be_revealed_before_freeze():
 
 
 def test_comparison_requires_oracle_reveal():
-    frozen = evaluation().advance(EvaluationPhase.FROZEN)
+    frozen = through_freeze(evaluation())
     with pytest.raises(RuntimeError, match="requires oracle reveal"):
         frozen.advance(EvaluationPhase.COMPARED)
 
 
 def test_frozen_then_oracle_then_compare():
-    item = evaluation().advance(EvaluationPhase.FROZEN)
+    item = through_freeze(evaluation())
     item = item.advance(EvaluationPhase.ORACLE_REVEALED)
     assert not item.blind
     assert item.oracle_allowed
