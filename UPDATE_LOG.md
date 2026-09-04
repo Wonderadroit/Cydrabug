@@ -33,3 +33,24 @@ Close the live ENS chain: current pages → fresh ProgramContract → relevant r
 
 ### Non-negotiable
 No discovered dependency, repository, explorer, documentation page, or historical known issue becomes testing authorization merely through acquisition or semantic similarity.
+
+## 2026-09-04 — invariant-reasoning-migration
+
+### Change
+Migrated the invariant representation and conservative candidate-generation boundary into `cydrabug`.
+
+### Added
+- Explicit invariant status (`asserted`, `inferred`, `unknown`, `contradicted`).
+- Evidence-bound candidate and verification records.
+- Explicit verification polarity (`supports`, `contradicts`, `neutral`).
+- Candidate generation from evidence-backed SystemModel relationships.
+- Precondition, assertion, transition-expression, state-dependency, cross-function consistency, and transition-obligation candidates.
+
+### Safety property
+Candidate generation describes implementation relationships; it does not label them as vulnerabilities. Confidence is preserved separately and cannot resolve an invariant or verification state by itself.
+
+### Tests
+Added `tests/test_invariants.py` covering evidence requirements, confidence/state separation, explicit verification polarity, and duplicate invariant rejection.
+
+### Validation status
+The new commits were inspected through the GitHub connector. No GitHub Actions workflow run was attached to the direct commit, so CI execution is **not claimed** yet. Local/Termux test execution remains the next validation step when the repository is available to the user runtime.
