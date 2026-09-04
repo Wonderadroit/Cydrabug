@@ -40,6 +40,10 @@ class HistoricalEvaluation:
     phase: EvaluationPhase = EvaluationPhase.INTAKE
 
     def advance(self, phase: EvaluationPhase) -> "HistoricalEvaluation":
+        if phase == EvaluationPhase.ORACLE_REVEALED and self.phase != EvaluationPhase.FROZEN:
+            raise RuntimeError("historical oracle cannot be revealed before CYDRA output is frozen")
+        if phase == EvaluationPhase.COMPARED and self.phase != EvaluationPhase.ORACLE_REVEALED:
+            raise RuntimeError("historical comparison requires oracle reveal after freeze")
         current_order = _PHASE_ORDER[self.phase]
         requested_order = _PHASE_ORDER[phase]
         if requested_order != current_order + 1:
@@ -47,10 +51,6 @@ class HistoricalEvaluation:
                 f"historical evaluation must advance one phase at a time: "
                 f"{self.phase.value} -> {phase.value}"
             )
-        if phase == EvaluationPhase.ORACLE_REVEALED and self.phase != EvaluationPhase.FROZEN:
-            raise RuntimeError("historical oracle cannot be revealed before CYDRA output is frozen")
-        if phase == EvaluationPhase.COMPARED and self.phase != EvaluationPhase.ORACLE_REVEALED:
-            raise RuntimeError("historical comparison requires oracle reveal after freeze")
         return HistoricalEvaluation(self.evaluation_id, self.contest, self.repository, self.revision, phase)
 
     @property
