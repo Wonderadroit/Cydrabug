@@ -113,4 +113,27 @@ Closed the next reasoning integrity boundary between exact external receipts, se
 Authenticity of an execution receipt proves what execution record was returned; it does not prove what that outcome means. Semantic polarity remains an explicit verification contract. Evidence consumption is also monotonic and replay-resistant, preventing the same observation receipt from silently increasing or decreasing belief multiple times.
 
 ### Validation status
-GitHub connector writes completed successfully on branch `recovery-receipt-evidence` in commits `71e07da7989797e3f64ed777c4aae87bdd394976`, `64ae67049b95d1086ad0c6bc0939c003badae8b0`, and the accompanying update-log commit. No GitHub Actions test workflow has been verified, so **CI is not claimed green**. The branch remains pending runtime test execution and review before merge.
+GitHub Actions run `33898238966` on the preceding recovery branch completed successfully with 45 tests passing. The historical branch adds further changes after that run; its own CI result remains pending and is not claimed green yet.
+
+## 2026-09-04 — blind-historical-evaluation-boundary
+
+### Change
+Started the isolated historical Immunefi evaluation using the completed Arbitration contest as a blind benchmark.
+
+### Pinned target
+- Repository: `immunefi-team/vaults`
+- Revision: `49c1de26cda19c9e8a4aa311ba3b0dc864f34a25`
+- Blind inputs: `README.md`, `foundry.toml`, `src/`
+
+### Added
+- `cydra/historical_evaluation.py` phase gate preventing oracle reveal before CYDRA output freeze.
+- `cydra/historical_workspace.py` fail-closed allowlist materialization and deterministic input fingerprinting.
+- `docs/HISTORICAL_IMMUNEFI_EVALUATION.md` defining the blind experiment and evaluation metrics.
+- Compiler-AST-backed `cydra/solidity_model.py` projection for contract/function/state declarations and explicit state read/write/transition relationships.
+- Regression tests for the Solidity projection and historical evaluation boundary.
+
+### Safety semantics
+Historical findings, reports, leaderboards, write-ups, and remediation knowledge remain outside the blind reasoning input. The Solidity adapter produces compiler-linked implementation evidence only; it does not create findings or security claims.
+
+### Current status
+The blind workspace and model boundary are implemented. The next step is to run the pinned target through Foundry build/AST production and feed the resulting evidence into invariant and hypothesis generation. Historical oracle material remains sealed until the complete CYDRA candidate output is frozen.
