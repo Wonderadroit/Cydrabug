@@ -38,14 +38,21 @@ def require_external_execution_contract(adapter):
     return adapter
 
 class ExternalExecutionGateway:
+    # Adapter identity is a process-wide capability boundary. Keeping the
+    # strong adapter reference prevents id reuse from reopening a binding.
+    _GLOBAL_ADAPTER_GATEWAYS={}
+
     def __init__(self,persist_request:Callable[[ExecutionRequest],object]|None=None,set_execution_state:Callable[[ExecutionRequest,str],object]|None=None,get_execution_state:Callable[[ExecutionRequest],str|None]|None=None,persist_result:Callable[[ExecutionRequest,ExternalExecutionResult],object]|None=None):
-        self._adapters={}; self._persist_request=persist_request; self._set_execution_state=set_execution_state; self._get_execution_state=get_execution_state; self._persist_result=persist_result; self._executed_digests=set(); self._local_states={}; self._execution_capabilities={}; self._adapter_gateways={}
+        self._adapters={}; self._persist_request=persist_request; self._set_execution_state=set_execution_state; self._get_execution_state=get_execution_state; self._persist_result=persist_result; self._executed_digests=set(); self._local_states={}; self._execution_capabilities={}
     def register(self,name,adapter):
         if not isinstance(name,str) or not name.strip(): raise ValueError("adapter name must not be empty")
         if name in self._adapters: raise ValueError(f"external adapter is already registered: {name}")
         canonical=require_external_execution_contract(adapter)
-        if id(canonical) in self._adapter_gateways: raise RuntimeError("external adapter is already bound to a different gateway")
-        capability=object(); canonical._bind_gateway_capability(capability); self._execution_capabilities[name]=capability; self._adapters[name]=canonical; self._adapter_gateways[id(canonical)]=self
+        key=id(canonical)
+        owner=ExternalExecutionGateway._GLOBAL_ADAPTER_GATEWAYS.get(key)
+        if owner is not None and owner is not self:
+            raise RuntimeError("external adapter is already bound to a different gateway")
+        capability=object(); canonical._bind_gateway_capability(capability); self._execution_capabilities[name]=capability; self._adapters[name]=canonical; ExternalExecutionGateway._GLOBAL_ADAPTER_GATEWAYS[key]=self
     def adapter(self,name):
         if name not in self._adapters: raise KeyError(f"external adapter is not registered: {name}")
         return self._adapters[name]
