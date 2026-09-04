@@ -157,3 +157,19 @@ A successful local command is not sufficient to establish compiler-backed semant
 
 ### Next boundary
 Use the exact pinned Arbitration revision and its declared Foundry configuration to produce the compiler-backed build receipt and AST, then connect that evidence to conservative invariant candidate generation. Historical findings remain sealed until CYDRA's candidate and PoC output is frozen.
+
+## 2026-09-04 — blind-evaluation-state-hardening
+
+### Change
+Hardened the historical benchmark state boundary before beginning the actual blind run.
+
+### Fixed
+- Historical evaluation phase transitions now use an explicit ordered lifecycle rather than lexicographic enum-string comparison.
+- Transitions must advance exactly one phase at a time, preventing accidental jumps over required blind/freeze stages.
+- Regression coverage now verifies that the oracle remains sealed through verification/freeze and that backward or multi-phase jumps are rejected.
+
+### Safety semantics
+The benchmark cannot legally reach `ORACLE_REVEALED` except immediately after `FROZEN`, and cannot reach `COMPARED` except immediately after oracle reveal. This keeps historical knowledge outside CYDRA reasoning until the candidate output is frozen.
+
+### Validation status
+Changes were written to `historical-immunefi-evaluation`; CI for the new commits has not yet been verified and is not claimed green.
