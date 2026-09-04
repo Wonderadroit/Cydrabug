@@ -137,3 +137,23 @@ Historical findings, reports, leaderboards, write-ups, and remediation knowledge
 
 ### Current status
 The blind workspace and model boundary are implemented. The next step is to run the pinned target through Foundry build/AST production and feed the resulting evidence into invariant and hypothesis generation. Historical oracle material remains sealed until the complete CYDRA candidate output is frozen.
+
+## 2026-09-04 — protocol-specific-build-identity-hardening
+
+### Change
+Hardened the build/toolchain boundary so compiler identity is treated as target-specific evidence rather than a generic local assumption.
+
+### Added / changed
+- Foundry detection now preserves an explicitly declared `solc_version`/`solc` value from `foundry.toml` when present.
+- An unspecified compiler version remains `None` with explicit `compiler-unspecified` provenance instead of being guessed from the local environment.
+- Build profiles preserve lock/config files as part of configuration identity.
+- Successful Foundry builds now discover generated artifact files and parse available `build-info` compiler metadata, including `solcVersion` and `solcLongVersion`.
+- Dependency-lock fingerprints are recorded separately from the general configuration fingerprint.
+- Node and Foundry toolchain identity remain protocol/repository-specific; CYDRA does not assume Foundry for every target.
+- Added regression tests for declared compiler versions, unknown compiler versions, configuration/lock fingerprints, and unavailable build tools.
+
+### Safety semantics
+A successful local command is not sufficient to establish compiler-backed semantic authority. The compiler/toolchain version, configuration, dependency state, exact revision, and generated artifacts must be bound to the target before those artifacts are treated as authoritative reasoning evidence. Missing compiler identity remains explicit uncertainty.
+
+### Next boundary
+Use the exact pinned Arbitration revision and its declared Foundry configuration to produce the compiler-backed build receipt and AST, then connect that evidence to conservative invariant candidate generation. Historical findings remain sealed until CYDRA's candidate and PoC output is frozen.
