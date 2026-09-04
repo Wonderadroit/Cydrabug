@@ -73,3 +73,24 @@ An observation remains a plan, not permission. Persisted authority is never trea
 
 ### Validation status
 GitHub connector writes completed successfully. No GitHub Actions test workflow has been verified for these direct commits, so **CI is not claimed green**. The next validation is to run the canonical test suite in the user runtime and repair any integration mismatches before adding the next execution/recovery layer.
+
+## 2026-09-04 — fresh-process-execution-recovery
+
+### Change
+Implemented the next execution boundary: fresh-process recovery of an already-recorded external execution without re-running the adapter.
+
+### Added
+- `cydra/execution_recovery.py` with `ExecutionRecoveryService` and immutable `RecoveredExecution`.
+- Exact execution ID, request digest, adapter, lifecycle-state, and durable receipt checks before rehydration.
+- Adapter rehydration through the existing `ExternalExecutionGateway`; recovery never calls the external adapter's `execute` path.
+- Regression coverage for exact receipt recovery, mismatched receipt rejection, and the no-re-execution property.
+- Hardened `ExternalExecutionGateway` so one external adapter instance cannot be rebound to a second gateway and thereby cross its capability boundary.
+
+### Safety semantics
+Recovery is evidence-preserving reconstruction, not a new execution. A durable receipt must bind to the exact canonical request. `OUTCOME_UNRECORDED` may be rehydrated for later reconciliation, but no recovery path is allowed to silently retry external work.
+
+### Validation status
+The new files and gateway hardening were successfully written to `Wonderadroit/cydrabug` as commits `def12212ccb64a1cee9461c00227528dd6f2cfe6`, `351e217904777b96da6b10157c7e6cd03617129b`, and `293d5b760d4632d0bd3e5b31428916ff7693297c`. No GitHub Actions test workflow has been verified for these commits, so **CI is not claimed green**.
+
+### Remaining integration boundary
+The canonical repository still lacks the historical `ReasoningOrchestrator` and its complete evidence-ingestion dependencies. The next implementation step is therefore to reconcile a minimal canonical reasoning/evidence boundary around the recovered receipt, rather than importing the historical orchestrator wholesale.
