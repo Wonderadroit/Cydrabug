@@ -57,32 +57,37 @@ def planner_hypotheses_from_verified_invariants(
 ) -> list[tuple[InvariantHypothesis, Hypothesis]]:
     verified = hypotheses_from_verified_invariants(model, candidates)
     return [
-        (InvariantHypothesis(f"hypothesis:{hypothesis.name}", item.invariant_id, item.statement, item.confidence), hypothesis)
-        for item in verified if (hypothesis := explicit_hypotheses.get(item.invariant_id)) is not None
+        (item, hypothesis)
+        for item in verified
+        if (hypothesis := explicit_hypotheses.get(item.hypothesis_id)) is not None
     ]
 
 
 def competing_hypotheses_from_candidates(
     candidates: list[InvariantCandidate], *, max_candidates: int | None = None,
 ) -> tuple[list[Hypothesis], list[Observation]]:
-    """Create symmetric, bounded hypotheses and observations for each candidate.
-
-    Discovery confidence is evidence quality, not truth probability. Both competing
-    explanations therefore begin at 0.5 and must be separated by observation.
-    """
+    """Create symmetric hypotheses and observations; discovery confidence is not belief."""
     if max_candidates is not None and max_candidates < 1:
         raise ValueError("max_candidates must be positive")
     active = candidates if max_candidates is None else candidates[:max_candidates]
     hypotheses, observations = [], []
     for candidate in active:
         base = candidate.candidate_id
+        holds_id = f"hypothesis:invariant-holds:{base}"
+        violated_id = f"hypothesis:invariant-violated:{base}"
         holds = Hypothesis(
-            name=f"invariant-holds:{base}", probability=0.5,
-            predictions={f"verify-invariant:{base}": {"INVARIANT_PRESERVED": .85, "INVARIANT_VIOLATED": .10, "INCONCLUSIVE": .05}},
+            hypothesis_id=holds_id,
+            statement=f"Invariant holds: {candidate.statement}",
+            belief=0.5,
+            planning_predictions={f"verify-invariant:{base}": {
+                "INVARIANT_PRESERVED": .85, "INVARIANT_VIOLATED": .10, "INCONCLUSIVE": .05}},
         )
         violated = Hypothesis(
-            name=f"invariant-violated:{base}", probability=0.5,
-            predictions={f"verify-invariant:{base}": {"INVARIANT_PRESERVED": .10, "INVARIANT_VIOLATED": .85, "INCONCLUSIVE": .05}},
+            hypothesis_id=violated_id,
+            statement=f"Invariant violated: {candidate.statement}",
+            belief=0.5,
+            planning_predictions={f"verify-invariant:{base}": {
+                "INVARIANT_PRESERVED": .10, "INVARIANT_VIOLATED": .85, "INCONCLUSIVE": .05}},
         )
         target_ids = tuple(
             value for key in ("source_function", "written_state", "predicate_node", "ast_node_id", "precondition_relation")
@@ -93,10 +98,10 @@ def competing_hypotheses_from_candidates(
             name=f"verify-invariant:{base}",
             outcomes=["INVARIANT_PRESERVED", "INVARIANT_VIOLATED", "INCONCLUSIVE"],
             cost=1.0, authorized=True, domain="target",
-            discriminates_hypothesis_ids=(holds.hypothesis_id, violated.hypothesis_id),
+            discriminates_hypothesis_ids=(holds_id, violated_id),
             target_ids=target_ids,
             rationale=("Verify the discovered invariant at its evidence-backed source and "
-                       "state-transition target; discovery confidence describes evidence quality, not truth."),
+                       "state-transition target; discovery confidence is evidence quality, not truth."),
         ))
         hypotheses.extend((holds, violated))
     return hypotheses, observations
@@ -122,13 +127,22 @@ def persist_invariant_hypotheses(model: SystemModel, hypotheses: list[InvariantH
         node = model.nodes.get(hypothesis.hypothesis_id)
         if node is None:
             model.add_node(Node(hypothesis.hypothesis_id, "hypothesis", hypothesis.statement, {
-                "invariant_id": hypothesis.invariant_id, "confidence": hypothesis.confidence, "provenance": "verified_invariant"}))
+                "invariant_id": hypothesis.invariant_id, "confidence": hypothesis.confidence,
+                "provenance": "verified_invariant", "belief": 0.5,
+            }))
         elif node.kind != "hypothesis":
             raise ValueError(f"hypothesis ID conflicts with non-hypothesis node: {hypothesis.hypothesis_id}")
         elif node.label != hypothesis.statement:
             if not {"probability", "predictions", "state", "subject_id"}.issubset(node.attributes):
                 raise ValueError("existing hypothesis label conflicts with canonical invariant bridge")
-            model.update_node_attributes(node.node_id, {"invariant_id": hypothesis.invariant_id, "invariant_statement": hypothesis.statement, "invariant_confidence": hypothesis.confidence, "provenance": "verified_invariant"})
+            model.update_node_attributes(node.node_id, {
+                "invariant_id": hypothesis.invariant_id, "invariant_statement": hypothesis.statement,
+                "invariant_confidence": hypothesis.confidence, "provenance": "verified_invariant",
+            })
         else:
-            model.update_node_attributes(node.node_id, {"invariant_id": hypothesis.invariant_id, "invariant_statement": hypothesis.statement, "invariant_confidence": hypothesis.confidence, "provenance": "verified_invariant"})
-        model.add_edge(Edge(hypothesis.invariant_id, "informs", hypothesis.hypothesis_id, {"provenance": "verified_invariant", "rationale": "supported invariant bridge"}))
+            model.update_node_attributes(node.node_id, {
+                "invariant_id": hypothesis.invariant_id, "invariant_statement": hypothesis.statement,
+                "invariant_confidence": hypothesis.confidence, "provenance": "verified_invariant",
+            })
+        model.add_edge(Edge(hypothesis.invariant_id, "informs", hypothesis.hypothesis_id, {
+            "provenance": "verified_invariant", "rationale": "supported invariant bridge"}))
