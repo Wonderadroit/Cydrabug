@@ -181,12 +181,28 @@ Connected Foundry compiler output to a provenance-complete Solidity AST ingestio
 
 ### Added
 - `SolidityBuildInfoSource` record preserving build-info file, source path, compiler version, long compiler version, AST, source content, and source fingerprint.
-- `load_foundry_build_info()` which accepts an AST only when compiler identity, build input source content, and compiler output AST are all present.
+- `load_foundry_build_info()` which accepts a build-info record only when compiler identity, build input source content, and compiler output AST are all present.
 - Regression tests for successful provenance-complete loading and fail-closed behavior when compiler identity is absent.
 - Bible update documenting that build-info AST evidence is authoritative only after the exact target build identity is established.
 
 ### Safety semantics
-An arbitrary JSON AST is no longer sufficient for the compiler-backed path. CYDRA requires a compiler-generated build-info relationship between the exact source content and its AST, while missing identity remains unresolved rather than silently promoted.
+An arbitrary JSON AST is no longer sufficient. CYDRA requires a compiler-generated build-info relationship between the exact source content and its AST, while missing identity remains unresolved rather than silently promoted.
 
 ### Remaining boundary
 The loader still needs to be bound to the exact pinned checkout/build result and its declared compiler configuration before the AST can enter authoritative invariant generation. The historical oracle remains sealed.
+
+## 2026-09-04 — historical-phase-regression-repair
+
+### Change
+Repaired the historical evaluation lifecycle regression exposed by CI after strict phase ordering was introduced.
+
+### Fixed
+- Oracle-reveal validation now runs before generic one-step validation so the correct freeze-gate error is preserved.
+- Historical evaluation tests now advance through `UNDERSTANDING → REASONING → INVESTIGATION → VERIFICATION → FROZEN` explicitly before testing post-freeze behavior.
+- The workspace phase regression expectation now matches the explicit oracle-reveal gate.
+
+### Validation
+GitHub Actions run `33901624895` on commit `9a5d13abe39eeea58f2a2544f37dce2ad25c3163` completed the full pytest suite successfully. The suite reached **63 passed, 0 failed**.
+
+### Result
+The historical benchmark state machine is now both strict and regression-tested. The historical oracle remains sealed.
