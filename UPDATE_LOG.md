@@ -94,3 +94,23 @@ The new files and gateway hardening were successfully written to `Wonderadroit/c
 
 ### Remaining integration boundary
 The canonical repository still lacks the historical `ReasoningOrchestrator` and its complete evidence-ingestion dependencies. The next implementation step is therefore to reconcile a minimal canonical reasoning/evidence boundary around the recovered receipt, rather than importing the historical orchestrator wholesale.
+
+## 2026-09-04 — receipt-evidence-hypothesis-replay-hardening
+
+### Change
+Closed the next reasoning integrity boundary between exact external receipts, semantic observation verification, and persistent hypothesis belief updates.
+
+### Added / hardened
+- `ExecutionEvidence` requires exact execution ID, canonical request digest, adapter identity, and independently recomputed receipt fingerprint.
+- Receipt evidence enters the semantic layer with neutral polarity by default; receipt outcome names do not themselves imply support or contradiction.
+- `ObservationVerificationBinding` requires an explicit outcome-to-role mapping for the exact two competing hypotheses.
+- Non-neutral receipt evidence is rejected at the semantic boundary, preventing callers from smuggling conclusions through the receipt layer.
+- Canonical invariant→hypothesis bridging now constructs the reconciled persistent/planner `Hypothesis` model rather than the obsolete planner-era constructor.
+- `Hypothesis` now records consumed evidence IDs and rejects duplicate evidence within an update or evidence already applied to that hypothesis.
+- Regression tests cover symmetric priors, canonical hypothesis identity, explicit semantic mapping, unknown outcomes, observation identity, and evidence replay.
+
+### Safety semantics
+Authenticity of an execution receipt proves what execution record was returned; it does not prove what that outcome means. Semantic polarity remains an explicit verification contract. Evidence consumption is also monotonic and replay-resistant, preventing the same observation receipt from silently increasing or decreasing belief multiple times.
+
+### Validation status
+GitHub connector writes completed successfully on branch `recovery-receipt-evidence` in commits `71e07da7989797e3f64ed777c4aae87bdd394976`, `64ae67049b95d1086ad0c6bc0939c003badae8b0`, and the accompanying update-log commit. No GitHub Actions test workflow has been verified, so **CI is not claimed green**. The branch remains pending runtime test execution and review before merge.
