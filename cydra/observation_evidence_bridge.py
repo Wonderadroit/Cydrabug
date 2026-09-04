@@ -53,7 +53,7 @@ def _state_for_role(role: VerificationRole) -> VerificationState:
 
 def verification_from_execution_evidence(
     *, evidence: ExecutionEvidence, binding: ObservationVerificationBinding
-) -> tuple[VerificationEvidence, tuple[CandidateVerification, CandidateVerification]]:
+) -> tuple[tuple[VerificationEvidence, VerificationEvidence], tuple[CandidateVerification, CandidateVerification]]:
     """Translate one exact receipt-bound outcome using only an explicit mapping."""
     if evidence.observation_name != binding.observation_name:
         raise ValueError("evidence observation does not match verification binding")
@@ -62,40 +62,27 @@ def verification_from_execution_evidence(
     if evidence.polarity != "neutral":
         raise ValueError("execution evidence must reach this boundary with neutral polarity")
 
-    roles = binding.outcome_roles[evidence.outcome]
-    verification_evidence = VerificationEvidence(
-        evidence_id=evidence.evidence_id,
-        role=VerificationRole.NEUTRAL,
-        confidence=evidence.confidence,
-        rationale=(
-            f"receipt-bound outcome {evidence.outcome!r} mapped explicitly by the "
-            f"observation verification contract"
-        ),
-    )
-    verifications = []
-    for hypothesis_id, role in zip(binding.hypothesis_ids, roles):
-        state = _state_for_role(role)
-        verifications.append(
-            CandidateVerification(
-                candidate_id=hypothesis_id,
-                state=state,
-                evidence_ids=(evidence.evidence_id,),
-                supporting_ids=(evidence.evidence_id,) if role == VerificationRole.SUPPORTS else (),
-                contradicting_ids=(evidence.evidence_id,) if role == VerificationRole.CONTRADICTS else (),
-                confidence=evidence.confidence,
-            )
+    semantic_evidence = tuple(
+        VerificationEvidence(
+            evidence_id=evidence.evidence_id,
+            role=role,
+            confidence=evidence.confidence,
+            rationale=f"explicit outcome mapping: {evidence.outcome} -> {role.value}",
         )
-        verifications[-1] = _with_role(verification_evidence, role, verifications[-1])
-    return verification_evidence, tuple(verifications)
-
-
-def _with_role(
-    evidence: VerificationEvidence, role: VerificationRole, verification: CandidateVerification
-) -> CandidateVerification:
-    """Keep CandidateVerification and its evidence polarity explicitly aligned."""
-    if role == VerificationRole.NEUTRAL:
-        return verification
-    return verification
+        for role in binding.outcome_roles[evidence.outcome]
+    )
+    verifications = tuple(
+        CandidateVerification(
+            candidate_id=hypothesis_id,
+            state=_state_for_role(role),
+            evidence_ids=(evidence.evidence_id,),
+            supporting_ids=(evidence.evidence_id,) if role == VerificationRole.SUPPORTS else (),
+            contradicting_ids=(evidence.evidence_id,) if role == VerificationRole.CONTRADICTS else (),
+            confidence=evidence.confidence,
+        )
+        for hypothesis_id, role in zip(binding.hypothesis_ids, binding.outcome_roles[evidence.outcome])
+    )
+    return semantic_evidence, verifications
 
 
 def apply_observation_evidence(
@@ -107,25 +94,13 @@ def apply_observation_evidence(
     selected = {item.hypothesis_id: item for item in hypotheses if item.hypothesis_id in expected}
     if set(selected) != expected:
         raise ValueError("verification binding references hypotheses that were not supplied")
-    _, verifications = verification_from_execution_evidence(evidence=evidence, binding=binding)
-
-    # Build semantic evidence separately for each hypothesis. The receipt remains
-    # neutral; only this explicit mapping is allowed to assign verification role.
-    roles = binding.outcome_roles[evidence.outcome]
-    updates = []
+    semantic_evidence, verifications = verification_from_execution_evidence(
+        evidence=evidence, binding=binding
+    )
     updated = []
-    for hypothesis, verification, role in zip(
-        (selected[binding.hypothesis_ids[0]], selected[binding.hypothesis_ids[1]]),
-        verifications,
-        roles,
-    ):
-        semantic = VerificationEvidence(
-            evidence_id=evidence.evidence_id,
-            role=role,
-            confidence=evidence.confidence,
-            rationale=f"explicit outcome mapping: {evidence.outcome} -> {role.value}",
-        )
-        new_hypothesis, update = update_hypothesis(hypothesis, verification, (semantic,))
+    updates = []
+    for hypothesis_id, semantic, verification in zip(binding.hypothesis_ids, semantic_evidence, verifications):
+        new_hypothesis, update = update_hypothesis(selected[hypothesis_id], verification, (semantic,))
         updated.append(new_hypothesis)
         updates.append(update)
     return tuple(updated), tuple(updates)
