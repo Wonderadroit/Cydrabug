@@ -5,7 +5,7 @@
 **Project:** CYDRA  
 **Repository:** `Wonderadroit/cydrabug`  
 **Status:** Canonical working source of truth  
-**Bible version:** `2.0.0-live-contest`  
+**Bible version:** `2.0.1-historical-build-evidence`  
 **Created:** 2026-09-04
 
 ---
@@ -237,6 +237,17 @@ CYDRA should select the strongest trustworthy representation available, approxim
 5. conservative lexical/regex fallback.
 
 Heuristic fallback may support discovery, but it must not fabricate semantic verification. In particular, a regex match must never become a claim equivalent to a compiler-backed or execution-backed fact.
+
+### Compiler build-info boundary
+
+For Solidity/Foundry targets, compiler-backed AST evidence must originate from a build receipt bound to the exact target build. CYDRA's `load_foundry_build_info()` accepts a build-info record only when it contains:
+
+- compiler version identity;
+- source content from the build input;
+- compiler output AST for that same source path;
+- a deterministic fingerprint of the source content.
+
+Missing compiler identity, missing source content, or missing AST is explicit uncertainty and is not promoted to authoritative semantic evidence. Build-info metadata is evidence of the compilation artifact; it is not itself a security claim.
 
 ---
 
@@ -476,7 +487,8 @@ The first live integration should deliberately exercise:
 - causal verification → finding eligibility;
 - live scope/impact/known-issue checks;
 - PoC generation;
-- recovery after interrupted work.
+- recovery after interrupted work;
+- compiler build-info → AST provenance binding.
 
 These are research-critical boundaries, not merely engineering details.
 
@@ -484,11 +496,9 @@ These are research-critical boundaries, not merely engineering details.
 
 ## 20. Immediate Next Boundary
 
-**Next implementation boundary:** take the live ENS Immunefi contest and produce a fresh, provenance-preserving canonical `ProgramContract` plus its relevant resource graph without inventing authority.
+**Next implementation boundary:** use the exact pinned Arbitration revision and its declared Foundry configuration to produce a real compiler-backed build receipt, load only provenance-complete AST/source pairs, project them into the canonical `SystemModel`, and generate conservative invariant candidates. The historical oracle remains sealed until the candidate/PoC output is cryptographically frozen.
 
-If this boundary works, proceed to exact source/build acquisition.
-
-If it fails, repair the boundary before adding downstream reasoning features.
+If the exact build/compiler identity cannot be established, CYDRA must stop at an explicit unresolved build state rather than silently substituting local compiler semantics.
 
 ---
 
@@ -518,27 +528,3 @@ Each update should record:
 - tests/validation;
 - resulting capability;
 - unresolved risks where relevant.
-
-Important historical snapshots must remain recoverable. Do not silently rewrite history.
-
-A ZIP export is a snapshot only; the extracted repository Bible is the current working truth.
-
----
-
-## 22. Success Criterion
-
-CYDRA succeeds by becoming measurably better at:
-
-- understanding real systems;
-- constructing defensible security invariants;
-- generating useful competing hypotheses;
-- choosing high-information observations;
-- preserving uncertainty and provenance;
-- proving causality;
-- avoiding unsupported claims;
-- producing reproducible evidence;
-- finding real bounty-eligible vulnerabilities.
-
-The ultimate test is not how much code CYDRA contains.
-
-It is whether CYDRA can understand a real authorized target well enough to discover and prove something that was not obvious before the investigation began.
