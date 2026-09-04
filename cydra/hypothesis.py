@@ -1,8 +1,8 @@
 """Persistent, evidence-bound hypothesis state and belief updates.
 
 Belief is uncertainty, not verification. Updates are bound to the exact
-verification evidence IDs supplied by the caller; unbound evidence cannot
-silently influence a hypothesis.
+verification evidence IDs supplied by the caller; unbound or already-consumed
+evidence cannot silently influence a hypothesis.
 """
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ class Hypothesis:
     belief: float = 0.5
     state: HypothesisState = HypothesisState.UNRESOLVED
     planning_predictions: dict[str, dict[str, float]] = field(default_factory=dict)
+    applied_evidence_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.hypothesis_id.strip():
@@ -34,6 +35,10 @@ class Hypothesis:
             raise ValueError("statement must not be empty")
         if not 0.0 <= self.belief <= 1.0:
             raise ValueError("belief must be between 0 and 1")
+        ids = tuple(self.applied_evidence_ids)
+        if len(ids) != len(set(ids)) or any(not item.strip() for item in ids):
+            raise ValueError("applied_evidence_ids must contain unique non-empty IDs")
+        object.__setattr__(self, "applied_evidence_ids", ids)
 
     @property
     def name(self) -> str:
@@ -69,7 +74,7 @@ def update_hypothesis(
     verification: CandidateVerification,
     evidence: Iterable[VerificationEvidence],
 ) -> tuple[Hypothesis, BeliefUpdate]:
-    """Apply one explicit verification result without promoting it to proof."""
+    """Apply one explicit verification result exactly once."""
     items = tuple(evidence)
     supplied = {item.evidence_id for item in items}
     bound = tuple(verification.evidence_ids)
@@ -77,6 +82,12 @@ def update_hypothesis(
         raise ValueError("verification contains an empty evidence ID")
     if not set(bound).issubset(supplied):
         raise ValueError("verification references evidence that was not supplied")
+    if len(bound) != len(set(bound)):
+        raise ValueError("verification contains duplicate evidence IDs")
+    consumed = set(hypothesis.applied_evidence_ids)
+    duplicate = consumed.intersection(bound)
+    if duplicate:
+        raise ValueError("verification evidence has already been applied to this hypothesis")
 
     relevant = tuple(item for item in items if item.evidence_id in bound and item.role.value != "neutral")
     if verification.state == VerificationState.SUPPORTED and relevant:
@@ -100,6 +111,7 @@ def update_hypothesis(
         _clamp(posterior),
         state,
         dict(hypothesis.planning_predictions),
+        hypothesis.applied_evidence_ids + bound,
     )
     return updated, BeliefUpdate(
         hypothesis.hypothesis_id,
