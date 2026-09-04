@@ -54,3 +54,22 @@ Added `tests/test_invariants.py` covering evidence requirements, confidence/stat
 
 ### Validation status
 The new commits were inspected through the GitHub connector. No GitHub Actions workflow run was attached to the direct commit, so CI execution is **not claimed** yet. Local/Termux test execution remains the next validation step when the repository is available to the user runtime.
+
+## 2026-09-04 — hypothesis-planner-execution-boundary
+
+### Change
+Reconciled persistent hypothesis state with planner observations, then migrated the execution identity, investigation authorization, external gateway, and lifecycle-audit boundary into the canonical repository.
+
+### Added
+- Immutable `ExecutionRequest` with canonical payload and deterministic digest.
+- Planner `Observation` execution identity/request binding and generated opaque execution IDs.
+- Live `InvestigationExecutionAuthorization` with investigation identity, authority fingerprint, lease generation, and explicit scope status.
+- `ExternalExecutionGateway` with request persistence, authorization checks, gateway-owned adapter capability, lifecycle enforcement, exact result binding, durable receipt requirement, replay barriers, and recovery/reconciliation primitives.
+- Independent execution lifecycle validator.
+- Focused execution gateway regression tests.
+
+### Critical safety semantics
+An observation remains a plan, not permission. Persisted authority is never treated as a capability. External outcomes whose identity/digest cannot be proven are recorded as `OUTCOME_UNRECORDED`, not silently treated as ordinary failures or retried. Completion requires a durable result receipt.
+
+### Validation status
+GitHub connector writes completed successfully. No GitHub Actions test workflow has been verified for these direct commits, so **CI is not claimed green**. The next validation is to run the canonical test suite in the user runtime and repair any integration mismatches before adding the next execution/recovery layer.
