@@ -26,6 +26,7 @@ def test_supporting_bound_evidence_increases_belief():
     assert updated.belief > item.belief
     assert updated.state == HypothesisState.SUPPORTED
     assert event.evidence_ids == ("e1",)
+    assert updated.applied_evidence_ids == ("e1",)
 
 
 def test_contradicting_bound_evidence_decreases_belief():
@@ -56,6 +57,20 @@ def test_neutral_evidence_does_not_change_belief():
     updated, _ = update_hypothesis(item, v, [evidence("e1", VerificationRole.NEUTRAL)])
     assert updated.belief == item.belief
     assert updated.state == HypothesisState.UNRESOLVED
+
+
+def test_duplicate_verification_evidence_is_rejected_within_one_update():
+    item = Hypothesis("hypothesis:x", "x", 0.5)
+    duplicate = verification(evidence_ids=("e1", "e1"), supporting_ids=("e1", "e1"))
+    with pytest.raises(ValueError, match="duplicate evidence IDs"):
+        update_hypothesis(item, duplicate, [evidence()])
+
+
+def test_already_applied_evidence_cannot_change_belief_twice():
+    item = Hypothesis("hypothesis:x", "x", 0.5)
+    updated, _ = update_hypothesis(item, verification(), [evidence()])
+    with pytest.raises(ValueError, match="already been applied"):
+        update_hypothesis(updated, verification(), [evidence()])
 
 
 def test_discovery_confidence_is_not_used_as_initial_belief():
