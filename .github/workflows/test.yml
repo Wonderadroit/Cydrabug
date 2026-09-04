@@ -2,7 +2,7 @@ name: tests
 
 on:
   push:
-    branches: [main, recovery-receipt-evidence]
+    branches: [main, recovery-receipt-evidence, historical-immunefi-evaluation]
   pull_request:
 
 jobs:
