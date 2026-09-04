@@ -173,3 +173,20 @@ The benchmark cannot legally reach `ORACLE_REVEALED` except immediately after `F
 
 ### Validation status
 Changes were written to `historical-immunefi-evaluation`; CI for the new commits has not yet been verified and is not claimed green.
+
+## 2026-09-04 — compiler-build-info-ast-boundary
+
+### Change
+Connected Foundry compiler output to a provenance-complete Solidity AST ingestion boundary for the blind historical experiment.
+
+### Added
+- `SolidityBuildInfoSource` record preserving build-info file, source path, compiler version, long compiler version, AST, source content, and source fingerprint.
+- `load_foundry_build_info()` which accepts an AST only when compiler identity, build input source content, and compiler output AST are all present.
+- Regression tests for successful provenance-complete loading and fail-closed behavior when compiler identity is absent.
+- Bible update documenting that build-info AST evidence is authoritative only after the exact target build identity is established.
+
+### Safety semantics
+An arbitrary JSON AST is no longer sufficient for the compiler-backed path. CYDRA requires a compiler-generated build-info relationship between the exact source content and its AST, while missing identity remains unresolved rather than silently promoted.
+
+### Remaining boundary
+The loader still needs to be bound to the exact pinned checkout/build result and its declared compiler configuration before the AST can enter authoritative invariant generation. The historical oracle remains sealed.
