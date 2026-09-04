@@ -23,8 +23,6 @@ def make_git_checkout(tmp_path: Path, revision: str) -> Path:
     subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
     actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
     if actual != revision:
-        # The real benchmark uses a pinned revision; this helper intentionally makes
-        # the mismatch explicit rather than pretending an arbitrary fixture matches.
         raise RuntimeError("fixture revision must be supplied by the test caller")
     return root
 
@@ -72,7 +70,7 @@ def test_phase_order_is_explicit_and_oracle_is_sealed():
     e = e.advance(EvaluationPhase.FROZEN)
     with pytest.raises(RuntimeError, match="must advance one phase"):
         e.advance(EvaluationPhase.INTAKE)
-    with pytest.raises(RuntimeError, match="one phase"):
+    with pytest.raises(RuntimeError, match="requires oracle reveal"):
         e.advance(EvaluationPhase.COMPARED)
     assert e.blind is True
     assert e.oracle_allowed is False
