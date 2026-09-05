@@ -159,10 +159,17 @@ def _discover_readme_and_setup(root: Path, found: list[TargetRequirement]) -> No
 
 def _workflow_value(text: str, action: str, key: str) -> str | None:
     """Read a value from the setup block belonging to one GitHub Action."""
-    match = re.search(rf"uses:\s*{re.escape(action)}(?:@|\s)[^\n]*\n(?P<body>(?:(?!^\s*-\s+uses:).)*?)", text, flags=re.I | re.M | re.S)
+    action_re = re.compile(rf"^\s*-?\s*uses:\s*{re.escape(action)}@[^\n]*$", re.I | re.M)
+    match = action_re.search(text)
     if not match:
         return None
-    value = re.search(rf"^\s*{re.escape(key)}:\s*[\"']?([^\s\"']+)", match.group("body"), flags=re.I | re.M)
+
+    # Read until the next action declaration. This intentionally does not try
+    # to parse all YAML; it only binds the requested key to the matching action.
+    remainder = text[match.end():]
+    next_action = re.search(r"^\s*-?\s*uses:\s*[^\n]+$", remainder, re.I | re.M)
+    body = remainder[: next_action.start()] if next_action else remainder
+    value = re.search(rf"^\s*{re.escape(key)}:\s*[\"']?([^\s\"']+)", body, flags=re.I | re.M)
     return value.group(1) if value else None
 
 
