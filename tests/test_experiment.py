@@ -1,19 +1,20 @@
 import pytest
 
 from cydra.experiment import ExperimentVariant
+from cydra.ens_target import AUDITED_REVISION, DEFAULT_REPOSITORY
 
-REVISION = "49c1de26cda19c9e8a4aa311ba3b0dc864f34a25"
+REVISION = AUDITED_REVISION
 
 
 def make_variant(**overrides):
     values = {
-        "target_repository": "immunefi-team/vaults",
+        "target_repository": DEFAULT_REPOSITORY,
         "target_revision": REVISION,
         "experiment_name": "verify-invariant:test",
         "variant_id": "boundary",
         "parameters": {"amount": 1, "actor": "alice"},
         "hypothesis_ids": ("hypothesis:invariant-holds:test", "hypothesis:invariant-violated:test"),
-        "target_ids": ("function:Vault:deposit",),
+        "target_ids": ("function:ENS:example",),
     }
     values.update(overrides)
     return ExperimentVariant(**values)
