@@ -91,7 +91,7 @@ Added regression tests proving the lineage is preserved while the audit/build ga
 A project-declared fork lineage may identify the intended source snapshot, but it does not silently promote that snapshot to exact audited Git identity or build-ready status. Active testing remains blocked until the source/build identity boundary is independently resolved.
 
 ### Validation status
-The implementation and tests were written directly to `live-immunefi-work` as commits `5890d27b011db4ba3bd8edc6a9c4a71b64dddf32` and `461402d0a8196f74618ef88578d2ca5d62f81571`. GitHub Actions has not been verified for these commits, so these commits are not claimed CI-green.
+The implementation and tests were written directly to `live-immunefi-work` as commits `5890d27b011db4ba3bd8edc6a9c4a71b64dddf32` and `461402d0a8196f74618ef88578d2ca5d62f81571`. GitHub Actions has not been verified for these commits, so CI is **not claimed green**.
 
 ### Next boundary
 Obtain and verify the complete ENS snapshot/build at the declared lineage, including the lockfile and toolchain identity, then establish a reproducible build receipt before projecting source into the canonical SystemModel.
@@ -194,7 +194,7 @@ Candidate generation describes implementation relationships; it does not label t
 Added `tests/test_invariants.py` covering evidence requirements, confidence/state separation, explicit verification polarity, and duplicate invariant rejection.
 
 ### Validation status
-The new commits were inspected through the GitHub connector. No GitHub Actions workflow run was attached to the direct commit, so CI execution is not claimed yet. Local/Termux test execution remains the next validation step when the repository is available to the user runtime.
+The new commits were inspected through the GitHub connector. No GitHub Actions workflow run was attached to the direct commit, so CI execution is **not claimed** yet. Local/Termux test execution remains the next validation step when the repository is available to the user runtime.
 
 ## 2026-09-04 — hypothesis-planner-execution-boundary
 
@@ -231,7 +231,7 @@ Implemented the next execution boundary: fresh-process recovery of an already-re
 Recovery is evidence-preserving reconstruction, not a new execution. A durable receipt must bind to the exact canonical request. `OUTCOME_UNRECORDED` may be rehydrated for later reconciliation, but no recovery path is allowed to silently retry external work.
 
 ### Validation status
-The new files and gateway hardening were successfully written to `Wonderadroit/cydrabug` as commits `def12212ccb64a1cee9461c00227528dd6f2cfe6`, `351e217904777b96da6b10157c7e6cd03617129b`, and `293d5b760d4632d0bd3e5b31428916ff7693297c`. No GitHub Actions test workflow has been verified for these commits, so CI is **not claimed green**.
+The new files and gateway hardening were successfully written to `Wonderadroit/cydrabug` as commits `def12212ccb64a1cee9461c00227528dd6f2cfe6`, `351e217904777b96da6b10157c7e6cd03617129b`, and `293d5b760d4632d0bd3e5b31428916ff7693297c`. No GitHub Actions test workflow has been verified for these commits, so **CI is not claimed green**.
 
 ### Remaining integration boundary
 The canonical repository still lacks the historical `ReasoningOrchestrator` and its complete evidence-ingestion dependencies. The next implementation step is therefore to reconcile a minimal canonical reasoning/evidence boundary around the recovered receipt, rather than importing the historical orchestrator wholesale.
@@ -243,4 +243,15 @@ Closed the next reasoning integrity boundary between exact external receipts, se
 
 ### Added / hardened
 - `ExecutionEvidence` requires exact execution ID, canonical request digest, adapter identity, and independently recomputed receipt fingerprint.
+- Receipt evidence enters the semantic layer with neutral polarity by default; receipt outcome names do not themselves imply support or contradiction.
+- `ObservationVerificationBinding` requires an explicit outcome-to-role mapping for the exact two competing hypotheses.
+- Non-neutral receipt evidence is rejected at the semantic boundary, preventing callers from smuggling conclusions through the receipt layer.
+- Canonical invariant→hypothesis bridging now constructs the reconciled persistent/planner `Hypothesis` model rather than the obsolete planner-era constructor.
+- `Hypothesis` now records consumed evidence IDs and rejects duplicate evidence within an update or evidence already applied to that hypothesis.
+- Regression tests cover symmetric priors, canonical hypothesis identity, explicit semantic mapping, unknown outcomes, observation identity, and evidence replay.
 
+### Safety semantics
+Authenticity of an execution receipt proves what execution record was returned; it does not prove what that outcome means. Semantic polarity remains an explicit verification contract. Evidence consumption is also monotonic and replay-resistant, preventing the same observation receipt from silently increasing or decreasing belief multiple times.
+
+### Validation status
+GitHub connector writes completed successfully on branch `recovery-receipt-evidence` in commits `71e07da7989797e3f64ed777c4aae87bdd394976`, `64ae67049b95d1086ad0c6bc0939c003badae8b0`, and the accompanying update-log commit. No GitHub Actions test workflow has been verified, so **CI is not claimed green**. The branch remains pending runtime test execution and review before merge.
