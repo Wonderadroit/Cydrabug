@@ -9,7 +9,6 @@ It is intentionally not a generic command runner and does not install tools.
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
-import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -98,15 +97,9 @@ def _git(root: Path, *args: str) -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
-def _sha256(root: Path, name: str) -> str:
-    path = root / name
-    if not path.is_file():
-        return ""
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+def _git_blob_sha(root: Path, name: str) -> str:
+    """Read the immutable Git blob identity from the observed checkout."""
+    return _git(root, "rev-parse", f"HEAD:{name}")
 
 
 def _tool_version(root: Path, argv: Sequence[str]) -> str:
@@ -136,7 +129,7 @@ def run_ens_build(
     worktree_clean = _git(root, "status", "--porcelain") == ""
     node_version = _tool_version(root, ("node", "--version"))
     pnpm_version = _tool_version(root, ("pnpm", "--version"))
-    hashes: Mapping[str, str] = {name: _sha256(root, name) for name in BUILD_INPUTS}
+    hashes: Mapping[str, str] = {name: _git_blob_sha(root, name) for name in BUILD_INPUTS}
 
     observations: list[CommandObservation] = []
     for command in CANONICAL_COMMANDS:
@@ -167,7 +160,7 @@ def run_ens_build(
 
 
 def expected_build_inputs() -> dict[str, str]:
-    """Return canonical expected hashes for the four immutable build inputs."""
+    """Return canonical expected Git blob identities for build inputs."""
     return {
         "package.json": ENS_PACKAGE_JSON_SHA,
         "pnpm-lock.yaml": ENS_PNPM_LOCK_SHA,
@@ -179,6 +172,7 @@ def expected_build_inputs() -> dict[str, str]:
 __all__ = [
     "AUDITED_REVISION",
     "CANONICAL_COMMANDS",
+    "DEFAULT_REVISION",
     "DEFAULT_REVISION",
     "ENS_PNPM_VERSION",
     "ENSBuildRun",
