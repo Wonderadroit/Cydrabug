@@ -83,30 +83,25 @@ def build_plan(
     container: str = DEFAULT_CONTAINER,
     command: Sequence[str] = ("python3", "-m", "cydra.doctor"),
 ) -> BootstrapPlan:
-    """Build a deterministic host-side PRoot launch plan without executing it."""
+    """Build a deterministic host-side PRoot launch plan without executing it.
+
+    The CYDRA checkout is bound explicitly rather than using --shared-home.
+    Sharing the host home over /root can mask the guest's own /root/.nvm tree,
+    which is part of the guest runtime. A targeted bind preserves the guest
+    runtime/toolchain while still exposing the CYDRA checkout.
+    """
     repo = Path(repository).expanduser().resolve()
     if not repo.is_dir():
         raise ValueError(f"repository directory does not exist: {repo}")
 
-    home = Path.home().resolve()
+    guest_repository = GUEST_WORKSPACE
+    bind = f"{repo}:{guest_repository}"
     initialized_command = _initialized_guest_command(command)
-    try:
-        repo.relative_to(home)
-    except ValueError:
-        guest_repository = GUEST_WORKSPACE
-        bind = f"{repo}:{guest_repository}"
-        launch = (
-            "proot-distro", "login", container, "--bind", bind,
-            "--work-dir", guest_repository, "--", *initialized_command,
-        )
-        return BootstrapPlan(container, repo, guest_repository, False, launch)
-
-    guest_repository = repo.as_posix()
     launch = (
-        "proot-distro", "login", container, "--shared-home", "--work-dir",
-        guest_repository, "--", *initialized_command,
+        "proot-distro", "login", container, "--bind", bind,
+        "--work-dir", guest_repository, "--", *initialized_command,
     )
-    return BootstrapPlan(container, repo, guest_repository, True, launch)
+    return BootstrapPlan(container, repo, guest_repository, False, launch)
 
 
 def verify_host(container: str = DEFAULT_CONTAINER) -> tuple[bool, str]:
