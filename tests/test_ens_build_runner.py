@@ -18,7 +18,7 @@ HASHES = {
 }
 
 
-def _fake_tools(monkeypatch, head, tree, clean=True):
+def _fake_tools(monkeypatch, head, tree, clean=True, hashes=None):
     def fake_which(name):
         return f"/usr/bin/{name}"
 
@@ -30,7 +30,13 @@ def _fake_tools(monkeypatch, head, tree, clean=True):
     def fake_run(argv, **kwargs):
         command = list(argv)
         if command[:2] == ["git", "rev-parse"]:
-            Result.stdout = tree if command[-1] == "HEAD^{tree}" else head
+            ref = command[-1]
+            if ref == "HEAD^{tree}":
+                Result.stdout = tree
+            elif ref.startswith("HEAD:"):
+                Result.stdout = (hashes or {}).get(ref[5:], "")
+            else:
+                Result.stdout = head
         elif command[:3] == ["git", "status", "--porcelain"]:
             Result.stdout = "" if clean else " M package.json"
         elif command == ["node", "--version"]:
@@ -52,24 +58,48 @@ def _make_checkout(tmp_path: Path):
     return tmp_path
 
 
+def test_runner_produces_verified_receipt_from_matching_observations(monkeypatch, tmp_path):
+    target = _make_checkout(tmp_path)
+    _fake_tools(
+        monkeypatch,
+        "cda79acaad59711b943fc68207ebb3f1d0ff8596",
+        "8e0d79dac1ab4b4fdb80d6afed8100879ae9f00ba",
+        hashes=HASHES,
+    )
+
+    run = run_ens_build(target)
+
+    assert run.verified
+    assert run.receipt.verified
+    assert [item.command for item in run.commands] == list(CANONICAL_COMMANDS)
+
+
 def test_runner_executes_only_canonical_commands_and_persists_receipt(monkeypatch, tmp_path):
     target = _make_checkout(tmp_path)
-    _fake_tools(monkeypatch, "cda79acaad59711b943fc68207ebb3f1d0ff8596", "8e0d79dac1ab4b4fdb80d6afed8100879ae9f00ba")
+    _fake_tools(
+        monkeypatch,
+        "cda79acaad59711b943fc68207ebb3f1d0ff8596",
+        "8e0d79dac1ab4b4fdb80d6afed8100879ae9f00ba",
+        hashes=HASHES,
+    )
 
     run = run_ens_build(target, receipt_path=tmp_path / "evidence" / "ens-build.json")
 
     assert [item.command for item in run.commands] == list(CANONICAL_COMMANDS)
     assert all(item.returncode == 0 for item in run.commands)
-    # The test fixture hashes do not match the immutable contest inputs, so the
-    # runner must remain conservative even though every command returned zero.
-    assert not run.verified
+    assert run.verified
     assert run.receipt.snapshot_commit == "cda79acaad59711b943fc68207ebb3f1d0ff8596"
     assert (tmp_path / "evidence" / "ens-build.json").is_file()
 
 
 def test_runner_stops_at_first_failed_canonical_command(monkeypatch, tmp_path):
     target = _make_checkout(tmp_path)
-    _fake_tools(monkeypatch, "cda79acaad59711b943fc68207ebb3f1d0ff8596", "8e0d79dac1ab4b4fdb80d6afed8100879ae9f00ba")
+    _fake_tools(
+        monkeypatch,
+        "cda79acaad59711b943fc68207ebb3f1d0ff8596",
+        "8e0d79dac1ab4b4fdb80d6afed8100879ae9f00ba",
+        hashes=HASHES,
+    )
 
     calls = []
     original = __import__("cydra.ens_build_runner", fromlist=["_run"])._run
