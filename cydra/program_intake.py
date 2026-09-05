@@ -97,7 +97,7 @@ def classify_scope(*,locator,explicit_in_scope=(),explicit_out_of_scope=()):
     return ScopeStatus.UNKNOWN
 def discover_references(*,parent_resource_id,base_locator,content):
     out=[];seen=set()
-    for raw in re.findall(r"(?i)(?:href|src)\s*=\s*['\"]([^'\"]+)",content):
+    for raw in re.findall(r"(?i)(?:href|src)\s*=\s*['\"]([^'\"]+)['\"]",content):
         loc=normalize_locator(base_locator,raw)
         if urlparse(loc).scheme not in {"http","https"}:continue
         authority,kind=classify_link(loc);key=(kind,loc)
@@ -106,7 +106,7 @@ def discover_references(*,parent_resource_id,base_locator,content):
 def extract_known_issues(*,acquired):
     text=re.sub(r"<[^>]+>"," ",acquired.content);text=re.sub(r"\s+"," ",text)
     if not re.search(r"known issues?|previously identified|not eligible",text,re.I):return ()
-    return (KnownIssue("known:"+hashlib.sha256(acquired.locator.encode()).hexdigest()[:16],"Program-published known issues",canonical_resource_id(ResourceKind.KNOWN_ISSUES,acquired.locator),KnownIssueStatus.INELIGIBLE_KNOWN),)
+    return (KnownIssue("known:"+hashlib.sha256(acquired.locator.encode()).hexdigest()[:16],"Program-published known issues",canonical_resource_id(ResourceKind.PROGRAM,acquired.locator),KnownIssueStatus.INELIGIBLE_KNOWN),)
 def parse_immunefi_program(*,locator,pages):
     slug=ImmunefiAcquisitionAdapter.program_slug(locator); info=next(p for p in pages if "/information/" in p.locator); scope=next((p for p in pages if "/scope/" in p.locator),None); resources=next((p for p in pages if "/resources/" in p.locator),None)
     primary=resource_from_acquisition(kind=ResourceKind.PROGRAM,acquired=info,adapter="immunefi",authority=AuthorityClass.AUTHORITATIVE); rs=[primary]
