@@ -1,5 +1,31 @@
 # CYDRA UPDATE LOG
 
+## 2026-09-05 — typescript-module-resolution
+
+### Change
+Extended the TypeScript compiler-backed source observer with compiler-driven import/export resolution.
+
+### Boundary
+`TypeScript AST + project compiler options → resolved module observations → SourceObservation → canonical SystemModel`
+
+### Why
+Flat declarations are insufficient for system reconstruction. CYDRA needs trustworthy relationships between source files/modules before reasoning about data flow, trust boundaries, or security hypotheses.
+
+### Implementation
+- The observer discovers the target project's `tsconfig.json` when available and uses its compiler options.
+- Import/export module specifiers are resolved through TypeScript's module resolver rather than lexical path guessing.
+- Each import/export observation records `RESOLVED` or `UNRESOLVED` plus the resolved file path when available.
+- The observer keeps supplied acquired source text authoritative for files being analyzed; target filesystem reads are limited to dependency/config resolution required by the compiler.
+
+### Safety semantics
+An unresolved module is preserved as unresolved. CYDRA does not infer a relationship from a matching filename or import string when the compiler cannot resolve it.
+
+### Live-contest exercise
+ENS is the first real TypeScript system-model exercise. This boundary will expose whether the 1,746-file source inventory can become a useful dependency graph using the project's own compiler semantics.
+
+### Validation status
+Code is committed on `live-immunefi-work`. Runtime execution against the ENS snapshot is still required before claiming resolution coverage or graph completeness. ENS exact audited-source identity remains unresolved, so this remains reconstruction work only.
+
 ## 2026-09-05 — typescript-source-provider
 
 ### Change
@@ -22,59 +48,3 @@ ENS TypeScript/TSX source is the first non-Python implementation exercising the 
 
 ### Validation status
 GitHub-side regression tests are committed. The provider still requires execution in the user's PRoot target environment with the acquired ENS dependency tree before any runtime capability claim is made. ENS exact audited-source identity remains unresolved; this change does not authorize active vulnerability investigation.
-
-## 2026-09-05 — language-neutral-source-observation-boundary
-
-### Change
-Introduced the first explicit language-neutral source-ingestion contract for M4 system reconstruction.
-
-### Boundary
-`language/tool-specific provider → SourceObservation → canonical SystemModel`
-
-### Implementation
-- Added `cydra/source_provider.py` with `SourceProvider`, normalized `SourceObservationKind`, `ObservationStrength`, and provenance-bearing `SourceObservation`.
-- The contract supports compiler-backed, specialized-tool, structural, lexical, and unresolved observation strength without equating any of them with a security conclusion.
-- Added regression tests proving provider identity, tool metadata, scope state, provenance, and language-neutral observation kinds survive normalization.
-
-### Safety semantics
-The provider contract does not grant authorization, promote scope, or establish vulnerabilities. Observation strength remains explicit so a lexical or structural observation cannot silently become a compiler-backed semantic fact.
-
-### Live-contest exercise
-ENS is the first real integration target. Its TypeScript source will later exercise a TypeScript-native provider through this same contract, while existing Python and Solidity-specific ingestion paths remain adapters rather than being replaced by a universal parser.
-
-### Validation status
-The contract tests are committed; local full-suite execution in the user's PRoot runtime is the next validation step. ENS source/build identity remains unresolved, so this change does not authorize active vulnerability investigation.
-
-## 2026-09-05 — proot-runtime-mapping-repair
-
-### Change
-Corrected CYDRA's first supported PRoot-Distro runtime bootstrap after verification against the actual Termux/Ubuntu environment.
-
-### Evidence
-- The Termux home is bind-mounted inside Ubuntu at `/data/data/com.termux/files/home`.
-- PRoot-Distro does not remap the shared Termux home to `/root`.
-- The authorized ENS snapshot is therefore visible inside Ubuntu at its original absolute host-home path.
-- The installed Ubuntu container is usable, but the initial container-list parser rejected its active `*` marker.
-
-### Implementation
-- `cydra/bootstrap.py` now preserves the absolute repository path for repositories under the shared home when constructing the `--shared-home` launch plan.
-- The container-list parser strips PRoot-Distro's presentation-only active marker before comparing installed container names.
-- `tests/test_bootstrap.py` adds regression coverage for the active marker and preserves the absolute shared-home mapping assertion.
-
-### Safety semantics
-The bootstrap layer still installs only explicitly requested CYDRA-owned base packages. It does not execute target-provided installation commands or silently install target-specific dependencies.
-
-### Validation status
-The user runtime independently verified that the ENS snapshot is visible from Ubuntu PRoot at the expected absolute mounted path and that its Git HEAD is `cda79acaad59711b943fc68207ebb3f1d0ff8596`. The corrected bootstrap code and regression test were written directly to `live-immunefi-work`; local execution of the updated tests remains to be performed in the user runtime.
-
-### Next boundary
-Run the corrected bootstrap/status and doctor paths. Then let CYDRA derive and report the ENS target environment requirements from the snapshot before any target-specific toolchain installation. Do not claim source/build verification until the required Node/pnpm environment and reproducible build receipt are established.
-
-## 2026-09-05 — regression-boundary-repair
-
-### Change
-Repaired three regression mismatches exposed by the first full local test run after the ENS build-identity boundary.
-
-### Repairs
-- Updated the execution-observation regression to expect the stronger trusted-result mutation rejection. A trusted receipt that is modified after gateway trust is established must fail at the trust boundary before semantic observation-field validation.
-- Corrected the Foundry reasoning fixture to use an evidence-backed `transition_expression` relationship, which is the current candidate-discovery input. A raw `writes` edge is not itself sufficient to manufacture an invariant candidate.
