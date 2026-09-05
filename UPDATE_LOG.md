@@ -206,3 +206,30 @@ GitHub Actions run `33901624895` on commit `9a5d13abe39eeea58f2a2544f37dce2ad25c
 
 ### Result
 The historical benchmark state machine is now both strict and regression-tested. The historical oracle remains sealed.
+
+## 2026-09-05 — pinned-arbitration-build-boundary-hardening
+
+### Change
+Continued the blind Arbitration integration by validating the actual pinned target metadata and hardening the local build/workspace provenance boundary before any vulnerability reasoning.
+
+### Target verification
+The exact target commit exists in `immunefi-team/vaults` at `49c1de26cda19c9e8a4aa311ba3b0dc864f34a25`. Its authoritative `foundry.toml` contains Foundry configuration but does **not** declare a `solc_version` or `solc` value. Therefore the compiler version is not promoted from editor/configuration conventions into declared target configuration.
+
+The target's `src/` tree contains the Solidity components permitted by the blind input boundary. Historical `audits/` material exists in the repository but is outside the blind allowlist and is not used as reasoning input.
+
+### Fixed
+- `historical_workspace.py` now rejects any dirty tracked or untracked state before blind materialization, not merely a matching `HEAD` revision.
+- Foundry build-info parsing now recognizes both `out/build-info/` and `build-info/` layouts.
+- Compiler-backed binding no longer incorrectly compares the Foundry executable's version string with the Solidity compiler version.
+- When `foundry.toml` leaves the compiler undeclared, a provenance-complete successful build may establish the **observed** compiler identity from its own build-info, provided all accepted build-info artifacts agree.
+- Source content remains hash- and byte-bound to the exact build-info input and exact pinned checkout.
+- Regression tests cover dirty checkout rejection, untracked-file rejection, and `out/build-info` discovery.
+
+### Validation
+GitHub Actions run `33944178532` on commit `2fd3cba248341ade110e08e699620def9a1e1ac8` completed successfully with **65 passed, 0 failed**.
+
+### Current blocker
+The actual pinned target still needs to be built in a Foundry-capable environment with its dependencies available. The local CYDRA container does not have `forge`, so no compiler-backed target build is being falsely claimed here.
+
+### Next boundary
+Use a clean checkout of the exact Arbitration revision, restore only the build-time dependencies required by the pinned project, run the real Foundry build with build-info, capture the build receipt/compiler identity, and feed only accepted `src/` AST/source pairs into `project_solidity_ast()`. Historical oracle material remains sealed until CYDRA's candidate output is frozen.
