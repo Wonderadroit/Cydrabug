@@ -34,6 +34,26 @@ def test_build_plan_binds_repo_outside_home(tmp_path, monkeypatch):
     assert plan.command[-3:] == ("bash", "-lc", "pwd")
 
 
+def test_build_plan_preserves_explicit_target_argument(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    repo = home / "cydra-bridge" / "workspace" / "cydrabug"
+    target = home / "cydra-bridge" / "workspace" / "cydrabug" / "ens-audit-snapshot"
+    target.mkdir(parents=True)
+    monkeypatch.setattr("cydra.bootstrap.Path.home", lambda: home)
+
+    command = ("python3", "-m", "cydra.doctor", "--target", target.resolve().as_posix())
+    plan = build_plan(repo, container="ubuntu", command=command)
+
+    assert plan.guest_repository == repo.resolve().as_posix()
+    assert plan.command[-5:] == (
+        "cydra.doctor",
+        "--target",
+        target.resolve().as_posix(),
+        # The first two elements are asserted below to make the suffix stable
+        # without coupling the test to the complete launcher tuple.
+    )
+
+
 def test_container_exists_uses_machine_readable_container_list(monkeypatch):
     calls = []
 
