@@ -9,6 +9,7 @@ It is intentionally not a generic command runner and does not install tools.
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
+import argparse
 import json
 from pathlib import Path
 import shutil
@@ -167,6 +168,45 @@ def expected_build_inputs() -> dict[str, str]:
         "pnpm-workspace.yaml": ENS_PNPM_WORKSPACE_SHA,
         ".npmrc": ENS_NPMRC_SHA,
     }
+
+
+def _main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Run CYDRA's fixed ENS canonical build validation suite.")
+    parser.add_argument("target", help="path to the ENS source checkout")
+    parser.add_argument(
+        "--receipt",
+        default="evidence/ens-build.json",
+        help="durable JSON evidence path (default: evidence/ens-build.json)",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=1800,
+        help="timeout in seconds per canonical command (default: 1800)",
+    )
+    args = parser.parse_args(argv)
+
+    try:
+        run = run_ens_build(args.target, receipt_path=args.receipt, timeout_per_command=args.timeout)
+    except (OSError, ValueError) as exc:
+        print(f"ENS BUILD RUN: ERROR: {exc}")
+        return 2
+
+    print(f"ENS BUILD RUN: {'VERIFIED' if run.verified else 'NOT VERIFIED'}")
+    print(f"snapshot: {run.observed_head}")
+    print(f"tree: {run.observed_tree}")
+    print(f"receipt: {Path(args.receipt).resolve()}")
+    for observation in run.commands:
+        print(f"{' '.join(observation.command)} -> {observation.status} ({observation.returncode})")
+    if not run.verified:
+        failures = run.receipt.failure_reasons()
+        for reason in failures:
+            print(f"RECEIPT FAILURE: {reason}")
+    return 0 if run.verified else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())
 
 
 __all__ = [
