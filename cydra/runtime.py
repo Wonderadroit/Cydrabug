@@ -56,27 +56,43 @@ def _run(argv: Sequence[str], timeout: int = 10) -> tuple[bool, str | None]:
     return result.returncode == 0, (text.splitlines()[0][:500] if text else None)
 
 
-def detect_runtime(*, require_proot: bool = True) -> RuntimeReport:
-    """Inspect the supported Linux runtime without changing the host."""
-    system = platform.system().lower()
-    architecture = platform.machine().lower()
-    proot_ok, proot_version = _run(("proot", "--version"))
-    ubuntu = False
+def _os_release() -> str:
     try:
-        release = open("/etc/os-release", encoding="utf-8").read().lower()
-        ubuntu = "id=ubuntu" in release or "id=ubuntu\n" in release
+        return open("/etc/os-release", encoding="utf-8").read().lower()
     except OSError:
-        pass
+        return ""
+
+
+def _is_ubuntu(release: str) -> bool:
+    return any(line.strip() in {"id=ubuntu", 'id="ubuntu"'} for line in release.splitlines())
+
+
+def detect_runtime(*, require_proot: bool = True) -> RuntimeReport:
+    """Inspect the supported Linux runtime without changing the host.
+
+    Android's kernel can be reported by ``platform.system()`` even while Python is
+    executing inside a PRoot Ubuntu userspace. CYDRA therefore treats the userspace
+    identity as the relevant runtime boundary and records the kernel-reported host
+    separately.
+    """
+    kernel_system = platform.system().lower()
+    architecture = platform.machine().lower()
+    release = _os_release()
+    ubuntu = _is_ubuntu(release)
+    proot_ok, proot_version = _run(("proot", "--version"))
+    userspace_linux = ubuntu or (kernel_system == "linux" and bool(release))
+    python_ok, python_version = _run(("python", "--version"))
+    git_ok, git_version = _run(("git", "--version"))
 
     capabilities = (
-        Capability("linux", True, system == "linux", system, "CYDRA production runtime is Linux-first"),
+        Capability("linux", True, userspace_linux, "linux" if userspace_linux else kernel_system, "CYDRA production runtime is Linux-first"),
         Capability("ubuntu", True, ubuntu, "ubuntu" if ubuntu else None, "first supported CYDRA production profile is Ubuntu"),
         Capability("proot", require_proot, proot_ok, proot_version, "first supported mobile runtime uses PRoot"),
-        Capability("python", True, _run(("python", "--version"))[0], _run(("python", "--version"))[1], "CYDRA core runtime"),
-        Capability("git", True, _run(("git", "--version"))[0], _run(("git", "--version"))[1], "source acquisition and provenance"),
+        Capability("python", True, python_ok, python_version, "CYDRA core runtime"),
+        Capability("git", True, git_ok, git_version, "source acquisition and provenance"),
     )
-    profile = "proot-ubuntu" if system == "linux" and ubuntu and proot_ok else "unsupported"
-    return RuntimeReport(profile, system, architecture, capabilities)
+    profile = "proot-ubuntu" if userspace_linux and ubuntu and proot_ok else "unsupported"
+    return RuntimeReport(profile, kernel_system, architecture, capabilities)
 
 
 def format_report(report: RuntimeReport) -> str:
