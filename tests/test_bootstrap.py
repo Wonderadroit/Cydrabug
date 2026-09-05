@@ -14,7 +14,10 @@ def test_build_plan_uses_actual_shared_home_path_for_repo_under_home(tmp_path, m
     assert plan.shared_home
     assert plan.guest_repository == repo.resolve().as_posix()
     assert plan.command[:5] == ("proot-distro", "login", "ubuntu", "--shared-home", "--work-dir")
-    assert plan.command[-3:] == ("python3", "-m", "cydra.doctor")
+    assert plan.command[-3:-2] == ("bash",)
+    assert plan.command[-2] == "-lc"
+    assert plan.command[-1].endswith("exec python3 -m cydra.doctor")
+    assert ". \"$HOME/.nvm/nvm.sh\"" in plan.command[-1]
 
 
 def test_build_plan_binds_repo_outside_home(tmp_path, monkeypatch):
@@ -31,7 +34,9 @@ def test_build_plan_binds_repo_outside_home(tmp_path, monkeypatch):
     assert "--bind" in plan.command
     bind_index = plan.command.index("--bind")
     assert plan.command[bind_index + 1] == f"{Path(repo).resolve()}:/workspace/cydrabug"
-    assert plan.command[-3:] == ("bash", "-lc", "pwd")
+    assert plan.command[-3] == "bash"
+    assert plan.command[-2] == "-lc"
+    assert plan.command[-1].endswith("exec bash -lc pwd")
 
 
 def test_build_plan_preserves_explicit_target_argument(tmp_path, monkeypatch):
@@ -46,12 +51,8 @@ def test_build_plan_preserves_explicit_target_argument(tmp_path, monkeypatch):
     plan = build_plan(repo, container="ubuntu", command=command)
 
     assert plan.guest_repository == repo.resolve().as_posix()
-    assert plan.command[-5:] == (
-        "python3",
-        "-m",
-        "cydra.doctor",
-        "--target",
-        target.resolve().as_posix(),
+    assert plan.command[-1].endswith(
+        f"exec python3 -m cydra.doctor --target {target.resolve().as_posix()}"
     )
 
 
