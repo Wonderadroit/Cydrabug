@@ -8,9 +8,8 @@ import json
 from pathlib import Path
 
 from .ens_target import scoped_assets
-from .source_ingestion import ingest_source_provider
+from .source_ingestion import project_source_observations
 from .source_provider import SourceObservationKind
-from .system_model import SystemModel
 from .typescript_provider import TypeScriptCompilerProvider
 
 
@@ -76,7 +75,7 @@ def run_ens_source_observation_experiment(
 
     provider = TypeScriptCompilerProvider(root, scope_resolver=_scope_resolver)
     observations = tuple(provider.observe(paths, sources))
-    system = ingest_source_provider(provider, paths, sources)
+    system = project_source_observations(observations)
 
     kinds = Counter(observation.kind.value for observation in observations)
     resolved_imports = sum(
