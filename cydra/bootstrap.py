@@ -48,9 +48,6 @@ def _container_exists(container: str) -> bool:
     if result.returncode != 0:
         return False
 
-    # PRoot-Distro marks the active/default installed distribution with ``*``
-    # in some versions even in quiet output. Treat that marker as presentation,
-    # not part of the container identity.
     installed = {
         line.strip().lstrip("*").strip()
         for line in result.stdout.splitlines()
@@ -65,17 +62,7 @@ def build_plan(
     container: str = DEFAULT_CONTAINER,
     command: Sequence[str] = ("python3", "-m", "cydra.doctor"),
 ) -> BootstrapPlan:
-    """Build a deterministic host-side PRoot launch plan without executing it.
-
-    ``repository`` is always the CYDRA checkout. The target checkout, when
-    needed, is passed explicitly in ``command`` so CYDRA remains the execution
-    workspace rather than accidentally making the target the Python import root.
-
-    With ``--shared-home``, PRoot-Distro exposes the host home at its original
-    absolute path. It does not remap that path to ``/root``. Preserve the
-    absolute repository path for repositories under the host home so the plan
-    matches the actual supported runtime topology.
-    """
+    """Build a deterministic host-side PRoot launch plan without executing it."""
     repo = Path(repository).expanduser().resolve()
     if not repo.is_dir():
         raise ValueError(f"repository directory does not exist: {repo}")
@@ -87,28 +74,15 @@ def build_plan(
         guest_repository = GUEST_WORKSPACE
         bind = f"{repo}:{guest_repository}"
         launch = (
-            "proot-distro",
-            "login",
-            container,
-            "--bind",
-            bind,
-            "--work-dir",
-            guest_repository,
-            "--",
-            *tuple(command),
+            "proot-distro", "login", container, "--bind", bind,
+            "--work-dir", guest_repository, "--", *tuple(command),
         )
         return BootstrapPlan(container, repo, guest_repository, False, launch)
 
     guest_repository = repo.as_posix()
     launch = (
-        "proot-distro",
-        "login",
-        container,
-        "--shared-home",
-        "--work-dir",
-        guest_repository,
-        "--",
-        *tuple(command),
+        "proot-distro", "login", container, "--shared-home", "--work-dir",
+        guest_repository, "--", *tuple(command),
     )
     return BootstrapPlan(container, repo, guest_repository, True, launch)
 
@@ -131,28 +105,14 @@ def install_base(container: str = DEFAULT_CONTAINER) -> int:
     ok, reason = verify_host(container)
     if not ok:
         raise RuntimeError(reason)
-    command = (
-        "proot-distro",
-        "login",
-        container,
-        "--",
-        "apt-get",
-        "update",
+    result = subprocess.run(
+        ("proot-distro", "login", container, "--", "apt-get", "update"),
+        check=False,
     )
-    result = subprocess.run(command, check=False)
     if result.returncode != 0:
         return result.returncode
     return subprocess.run(
-        (
-            "proot-distro",
-            "login",
-            container,
-            "--",
-            "apt-get",
-            "install",
-            "-y",
-            *BASE_PACKAGES,
-        ),
+        ("proot-distro", "login", container, "--", "apt-get", "install", "-y", *BASE_PACKAGES),
         check=False,
     ).returncode
 
@@ -160,15 +120,9 @@ def install_base(container: str = DEFAULT_CONTAINER) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cydra-bootstrap")
     parser.add_argument("--container", default=DEFAULT_CONTAINER)
-    parser.add_argument(
-        "--repository",
-        default=str(Path.cwd()),
-        help="CYDRA checkout to use as the execution workspace",
-    )
-    parser.add_argument(
-        "--target",
-        help="target checkout to inspect from CYDRA's doctor",
-    )
+    parser.add_argument("--repository", default=str(Path.cwd()), help="CYDRA checkout to use as the execution workspace")
+    parser.add_argument("--target", help="target checkout to inspect from CYDRA's doctor")
+    parser.add_argument("--target-profile", choices=("ens",), help="authoritative target profile selected by intake")
     parser.add_argument("--status", action="store_true", help="verify the host launcher and container")
     parser.add_argument("--doctor", action="store_true", help="run CYDRA doctor inside the container")
     parser.add_argument("--shell", action="store_true", help="open a shell in the CYDRA workspace inside the container")
@@ -192,6 +146,8 @@ def main(argv: list[str] | None = None) -> int:
             if not target.is_dir():
                 raise ValueError(f"target directory does not exist: {target}")
             command += ("--target", target.as_posix())
+        if args.target_profile:
+            command += ("--target-profile", args.target_profile)
     else:
         command = ("python3", "-m", "cydra.doctor")
 
