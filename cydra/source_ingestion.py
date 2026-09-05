@@ -1,9 +1,9 @@
 """Projection of normalized source observations into CYDRA's canonical model."""
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
-from .source_provider import SourceObservation
+from .source_provider import SourceObservation, SourceProvider
 from .system_model import Edge, Node, SystemModel
 
 
@@ -29,13 +29,21 @@ def project_source_observations(
             attributes["tool_version"] = observation.tool_version
 
         if observation.observation_id not in system.nodes:
-            system.add_node(
-                Node(
-                    observation.observation_id,
-                    observation.kind.value,
-                    observation.name,
-                    attributes,
-                )
-            )
+            system.add_node(Node(observation.observation_id, observation.kind.value, observation.name, attributes))
 
     return system
+
+
+def ingest_source_provider(
+    provider: SourceProvider,
+    paths: Iterable[str],
+    sources: Mapping[str, str],
+    system: SystemModel | None = None,
+) -> SystemModel:
+    """Run one source provider and project its normalized facts into the model.
+
+    Provider capability failures intentionally propagate; an unavailable semantic
+    tool must not silently degrade into a weaker parser or empty model.
+    """
+    observations = provider.observe(paths, sources)
+    return project_source_observations(observations, system)
