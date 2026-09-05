@@ -67,6 +67,10 @@ def build_plan(
 ) -> BootstrapPlan:
     """Build a deterministic host-side PRoot launch plan without executing it.
 
+    ``repository`` is always the CYDRA checkout. The target checkout, when
+    needed, is passed explicitly in ``command`` so CYDRA remains the execution
+    workspace rather than accidentally making the target the Python import root.
+
     With ``--shared-home``, PRoot-Distro exposes the host home at its original
     absolute path. It does not remap that path to ``/root``. Preserve the
     absolute repository path for repositories under the host home so the plan
@@ -156,7 +160,15 @@ def install_base(container: str = DEFAULT_CONTAINER) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cydra-bootstrap")
     parser.add_argument("--container", default=DEFAULT_CONTAINER)
-    parser.add_argument("--repository", default=str(Path.cwd()))
+    parser.add_argument(
+        "--repository",
+        default=str(Path.cwd()),
+        help="CYDRA checkout to use as the execution workspace",
+    )
+    parser.add_argument(
+        "--target",
+        help="target checkout to inspect from CYDRA's doctor",
+    )
     parser.add_argument("--status", action="store_true", help="verify the host launcher and container")
     parser.add_argument("--doctor", action="store_true", help="run CYDRA doctor inside the container")
     parser.add_argument("--shell", action="store_true", help="open a shell in the CYDRA workspace inside the container")
@@ -171,7 +183,18 @@ def main(argv: list[str] | None = None) -> int:
     if not ok:
         return 2
 
-    command = ("python3", "-m", "cydra.doctor") if args.doctor else ("bash",) if args.shell else ("python3", "-m", "cydra.doctor")
+    if args.shell:
+        command = ("bash",)
+    elif args.doctor:
+        command = ("python3", "-m", "cydra.doctor")
+        if args.target:
+            target = Path(args.target).expanduser().resolve()
+            if not target.is_dir():
+                raise ValueError(f"target directory does not exist: {target}")
+            command += ("--target", target.as_posix())
+    else:
+        command = ("python3", "-m", "cydra.doctor")
+
     plan = build_plan(args.repository, container=args.container, command=command)
     if args.status:
         print(f"repository: {plan.repository}")
