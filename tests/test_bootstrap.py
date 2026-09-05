@@ -37,7 +37,8 @@ def test_build_plan_binds_repo_outside_home(tmp_path, monkeypatch):
 def test_build_plan_preserves_explicit_target_argument(tmp_path, monkeypatch):
     home = tmp_path / "home"
     repo = home / "cydra-bridge" / "workspace" / "cydrabug"
-    target = home / "cydra-bridge" / "workspace" / "cydrabug" / "ens-audit-snapshot"
+    target = home / "cydra-bridge" / "workspace" / "ens-audit-snapshot"
+    repo.mkdir(parents=True)
     target.mkdir(parents=True)
     monkeypatch.setattr("cydra.bootstrap.Path.home", lambda: home)
 
@@ -46,11 +47,11 @@ def test_build_plan_preserves_explicit_target_argument(tmp_path, monkeypatch):
 
     assert plan.guest_repository == repo.resolve().as_posix()
     assert plan.command[-5:] == (
+        "python3",
+        "-m",
         "cydra.doctor",
         "--target",
         target.resolve().as_posix(),
-        # The first two elements are asserted below to make the suffix stable
-        # without coupling the test to the complete launcher tuple.
     )
 
 
