@@ -6,6 +6,7 @@ const Module = require("module");
 
 const input = JSON.parse(fs.readFileSync(0, "utf8"));
 const targetRoot = path.resolve(input.target_root || process.cwd());
+const supplied = new Map(input.files.map((item) => [path.resolve(targetRoot, item.path), item.source]));
 
 let ts;
 try {
@@ -26,6 +27,32 @@ function lineOf(node) {
   return node.getSourceFile().getLineAndCharacterOfPosition(node.getStart()).line + 1;
 }
 
+function compilerOptions() {
+  const configPath = ts.findConfigFile(targetRoot, ts.sys.fileExists, "tsconfig.json");
+  if (!configPath) return {};
+  const raw = ts.readConfigFile(configPath, ts.sys.readFile);
+  if (raw.error) return {};
+  const parsed = ts.parseJsonConfigFileContent(raw.config, ts.sys, path.dirname(configPath));
+  return parsed.options;
+}
+
+const options = compilerOptions();
+
+function resolveImport(specifier, containingFile) {
+  const resolved = ts.resolveModuleName(specifier, containingFile, options, {
+    ...ts.sys,
+    readFile(fileName) {
+      const absolute = path.resolve(fileName);
+      return supplied.has(absolute) ? supplied.get(absolute) : ts.sys.readFile(fileName);
+    },
+    fileExists(fileName) {
+      const absolute = path.resolve(fileName);
+      return supplied.has(absolute) || ts.sys.fileExists(fileName);
+    },
+  });
+  return resolved.resolvedModule?.resolvedFileName || null;
+}
+
 function visit(node) {
   const push = (kind, name, attributes = {}) => {
     result.push({ path: node.getSourceFile().fileName, kind, name, line: lineOf(node), attributes });
@@ -42,10 +69,20 @@ function visit(node) {
   } else if (ts.isTypeAliasDeclaration(node)) {
     push("type", node.name.text, { declaration: "type_alias" });
   } else if (ts.isImportDeclaration(node)) {
-    push("import", node.moduleSpecifier.getText().replace(/^['\"]|['\"]$/g, ""));
+    const specifier = node.moduleSpecifier.getText().replace(/^['\"]|['\"]$/g, "");
+    const resolved = resolveImport(specifier, node.getSourceFile().fileName);
+    push("import", specifier, {
+      resolved_path: resolved,
+      resolution_status: resolved ? "RESOLVED" : "UNRESOLVED",
+    });
   } else if (ts.isExportDeclaration(node)) {
     const module = node.moduleSpecifier;
-    push("export", module ? module.getText().replace(/^['\"]|['\"]$/g, "") : "export");
+    const specifier = module ? module.getText().replace(/^['\"]|['\"]$/g, "") : "export";
+    const resolved = module ? resolveImport(specifier, node.getSourceFile().fileName) : null;
+    push("export", specifier, {
+      resolved_path: resolved,
+      resolution_status: module ? (resolved ? "RESOLVED" : "UNRESOLVED") : "DECLARATION",
+    });
   } else if (ts.isCallExpression(node)) {
     push("call", node.expression.getText(), { expression: node.expression.getText() });
   }
@@ -54,7 +91,8 @@ function visit(node) {
 }
 
 for (const item of input.files) {
-  const sourceFile = ts.createSourceFile(item.path, item.source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const absolutePath = path.resolve(targetRoot, item.path);
+  const sourceFile = ts.createSourceFile(absolutePath, item.source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   result.push({ path: item.path, kind: "file", name: item.path, line: 1, attributes: { statements: sourceFile.statements.length } });
   visit(sourceFile);
 }
