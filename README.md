@@ -20,32 +20,51 @@ The live target is used to expose real engineering and reasoning boundaries. It 
 
 ## Runtime and target environment
 
-CYDRA now has an executable environment boundary rather than relying on documentation alone.
+CYDRA has an executable environment boundary rather than relying on documentation alone.
 
-Base runtime check:
+The first supported mobile production profile is **Ubuntu under PRoot**. The Termux host is not itself the CYDRA production runtime; CYDRA must run inside the Ubuntu userspace.
+
+### Bootstrap into the supported Ubuntu runtime
+
+From the CYDRA checkout in Termux:
 
 ```bash
-python -m cydra.runtime
+python -m cydra.bootstrap --status
+python -m cydra.bootstrap --doctor
+python -m cydra.bootstrap --shell
 ```
 
-Operator doctor:
+The bootstrap uses PRoot-Distro's shared-home or explicit bind mechanism to make the CYDRA checkout available inside Ubuntu. It does not install arbitrary target software.
+
+To explicitly install CYDRA-owned base prerequisites in the Ubuntu container:
 
 ```bash
-python -m cydra.doctor
+python -m cydra.bootstrap --install-base
+```
+
+This is an operator-approved bootstrap action. It installs only CYDRA's declared base packages (`python3`, `python3-venv`, `git`, and `ca-certificates`). Target-specific dependencies remain a later, separately verified requirement step.
+
+### Runtime checks
+
+Inside the supported Ubuntu runtime:
+
+```bash
+python3 -m cydra.runtime
+python3 -m cydra.doctor
 ```
 
 After a target checkout has been acquired through the authorized intake flow:
 
 ```bash
-python -m cydra.doctor --target /path/to/target
+python3 -m cydra.doctor --target /path/to/target
 ```
 
 The target environment detector reads repository declarations such as `package.json`, lockfiles, `.nvmrc`, `foundry.toml`, and `Cargo.toml`, then reports missing or incompatible capabilities. It does **not** automatically install arbitrary target-supplied software or treat a declaration as testing authority.
 
-The first supported mobile production profile is **Ubuntu under PRoot**. Native Linux and other isolated execution backends can be added without changing CYDRA's reasoning model.
+Native Linux and other isolated execution backends can be added without changing CYDRA's reasoning model.
 
 ## Immediate next step
 
-Validate the new runtime/target environment boundary in the user's PRoot Ubuntu runtime, then continue ENS source/build verification. A target is not considered reproducible merely because its declared dependencies can be installed.
+Validate the PRoot Ubuntu bootstrap and runtime boundary, then continue ENS source/build verification. A target is not considered reproducible merely because its declared dependencies can be installed.
 
 See the Project Bible for the full development doctrine, milestones, authorization boundaries, evidence rules, and definition of done.
