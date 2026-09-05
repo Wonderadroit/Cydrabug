@@ -32,3 +32,23 @@ def test_build_plan_binds_repo_outside_home(tmp_path, monkeypatch):
     bind_index = plan.command.index("--bind")
     assert plan.command[bind_index + 1] == f"{Path(repo).resolve()}:/workspace/cydrabug"
     assert plan.command[-3:] == ("bash", "-lc", "pwd")
+
+
+def test_container_exists_uses_launch_probe(monkeypatch):
+    calls = []
+
+    monkeypatch.setattr("cydra.bootstrap._require_executable", lambda name: "/usr/bin/proot-distro")
+
+    class Result:
+        returncode = 0
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        return Result()
+
+    monkeypatch.setattr("cydra.bootstrap.subprocess.run", fake_run)
+
+    from cydra.bootstrap import _container_exists
+
+    assert _container_exists("ubuntu")
+    assert calls == [["proot-distro", "login", "ubuntu", "--", "true"]]
