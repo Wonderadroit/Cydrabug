@@ -6,6 +6,8 @@ transitions, delegates through a gateway-owned capability, validates the exact
 result, and requires a durable receipt before completion.
 """
 from __future__ import annotations
+from hashlib import sha256
+import json
 from typing import Callable, Mapping, Protocol, runtime_checkable
 from .execution_request import ExecutionRequest
 
@@ -22,6 +24,10 @@ class ExternalExecutionAdapter(Protocol):
     def _bind_gateway_capability(self, capability:object)->None: ...
     def execute(self, *, request:ExecutionRequest, authorization:object, gateway_capability:object)->ExternalExecutionResult: ...
     def rehydrate_result(self, *, payload:Mapping[str,object], request:ExecutionRequest)->ExternalExecutionResult: ...
+
+def _receipt_digest(payload: Mapping[str, object]) -> str:
+    encoded=json.dumps(dict(payload),sort_keys=True,separators=(",",":"),ensure_ascii=True,allow_nan=False).encode()
+    return sha256(encoded).hexdigest()
 
 def validate_result_binding(result, request):
     if not isinstance(result,ExternalExecutionResult): raise TypeError("external result does not implement the CYDRA result contract")
@@ -43,7 +49,7 @@ class ExternalExecutionGateway:
     _GLOBAL_ADAPTER_GATEWAYS={}
 
     def __init__(self,persist_request:Callable[[ExecutionRequest],object]|None=None,set_execution_state:Callable[[ExecutionRequest,str],object]|None=None,get_execution_state:Callable[[ExecutionRequest],str|None]|None=None,persist_result:Callable[[ExecutionRequest,ExternalExecutionResult],object]|None=None,get_result:Callable[[ExecutionRequest],ExternalExecutionResult|None]|None=None):
-        self._adapters={}; self._persist_request=persist_request; self._set_execution_state=set_execution_state; self._get_execution_state=get_execution_state; self._persist_result=persist_result; self._get_result=get_result; self._executed_digests=set(); self._local_states={}; self._execution_capabilities={}; self._trusted_results=[]
+        self._adapters={}; self._persist_request=persist_request; self._set_execution_state=set_execution_state; self._get_execution_state=get_execution_state; self._persist_result=persist_result; self._get_result=get_result; self._executed_digests=set(); self._local_states={}; self._execution_capabilities={}; self._trusted_results={}
     def register(self,name,adapter):
         if not isinstance(name,str) or not name.strip(): raise ValueError("adapter name must not be empty")
         if name in self._adapters: raise ValueError(f"external adapter is already registered: {name}")
@@ -97,17 +103,20 @@ class ExternalExecutionGateway:
             self._persist_result(request,result); self._state(request,"RESULT_RECORDED"); self._state(request,"COMPLETED")
         except Exception as exc:
             self._mark_unrecorded(request); raise RuntimeError("external execution succeeded but durable result/completion recording failed") from exc
-        self._executed_digests.add(request.digest); self._trusted_results.append(result); return result
+        self._executed_digests.add(request.digest); self._trusted_results[id(result)]=(_receipt_digest(result.canonical_payload()),result); return result
     def rehydrate_result(self,name,request,payload):
         current=self._current_state(request)
         if current not in {"RESULT_RECORDED","COMPLETED","OUTCOME_UNRECORDED"}: raise RuntimeError(f"result rehydration requires a recorded external result, found {current or 'ABSENT'}")
         result=self.adapter(name).rehydrate_result(payload=payload,request=request); validate_result_binding(result,request)
         if dict(result.canonical_payload())!=dict(payload): raise ValueError("rehydrated result does not exactly match the durable receipt payload")
-        self._trusted_results.append(result)
+        self._trusted_results[id(result)]=(_receipt_digest(result.canonical_payload()),result)
         return result
     def require_trusted_result(self, result):
-        if not any(candidate is result for candidate in self._trusted_results):
-            raise ValueError("external execution result was not produced or rehydrated by this gateway")
+        entry=self._trusted_results.get(id(result))
+        if entry is None or entry[1] is not result: raise ValueError("external execution result was not produced or rehydrated by this gateway")
+        try: current=_receipt_digest(result.canonical_payload())
+        except Exception as exc: raise ValueError("trusted external execution result canonical payload is no longer valid") from exc
+        if current!=entry[0]: raise ValueError("trusted external execution result was mutated after trust was established")
         return result
     def reconcile_result(self,request,result,*,terminal_state="COMPLETED"):
         if terminal_state not in {"COMPLETED","FAILED"}: raise ValueError("reconciliation requires terminal_state COMPLETED or FAILED")
@@ -118,6 +127,6 @@ class ExternalExecutionGateway:
         durable = self._get_result(request)
         if not isinstance(durable, ExternalExecutionResult) or dict(durable.canonical_payload()) != dict(result.canonical_payload()):
             raise ValueError("reconciled result does not match the existing durable result")
-        self._persist_result(request,result); self._state(request,terminal_state); self._executed_digests.add(request.digest); self._trusted_results.append(result)
+        self._persist_result(request,result); self._state(request,terminal_state); self._executed_digests.add(request.digest); self._trusted_results[id(result)]=(_receipt_digest(result.canonical_payload()),result)
     @property
     def registered_adapters(self): return tuple(sorted(self._adapters))
