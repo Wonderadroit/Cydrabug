@@ -24,6 +24,7 @@ class TargetRequirement:
     source: str
     required: bool = True
     authority: str = "PROJECT"
+    purpose: str = "canonical-build"
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,13 @@ class TargetEnvironmentReport:
             if c.requirement.required and not c.available
         )
 
+    def capabilities_for(self, purpose: str) -> tuple[TargetCapability, ...]:
+        return tuple(c for c in self.capabilities if c.requirement.purpose == purpose)
+
+    def ready_for(self, purpose: str) -> bool:
+        scoped = self.capabilities_for(purpose)
+        return all(c.available for c in scoped if c.requirement.required)
+
 
 _VERSIONED_TOOLS = ("node", "pnpm", "npm", "yarn", "python", "python3", "forge", "cargo")
 _COMMAND_TOOLS = ("docker", "forge", "cargo", "pnpm", "npm", "yarn", "node", "python", "python3")
@@ -73,8 +81,18 @@ def _read_text(path: Path) -> str:
         return ""
 
 
-def _add(found: list[TargetRequirement], name: str, kind: str, version: str | None, source: str, *, authority: str = "PROJECT") -> None:
-    found.append(TargetRequirement(name, kind, version, source, True, authority))
+def _add(
+    found: list[TargetRequirement],
+    name: str,
+    kind: str,
+    version: str | None,
+    source: str,
+    *,
+    authority: str = "PROJECT",
+    required: bool = True,
+    purpose: str = "canonical-build",
+) -> None:
+    found.append(TargetRequirement(name, kind, version, source, required, authority, purpose))
 
 
 def _discover_manifest_requirements(root: Path, found: list[TargetRequirement]) -> None:
@@ -118,13 +136,13 @@ def _discover_manifest_requirements(root: Path, found: list[TargetRequirement]) 
         _add(found, "python3", "runtime", None, source)
 
 
-def _discover_commands(source: str, text: str, found: list[TargetRequirement]) -> None:
+def _discover_commands(source: str, text: str, found: list[TargetRequirement], *, purpose: str = "canonical-build") -> None:
     """Extract tools only from explicit command-like text, never from prose."""
     lowered = text.lower()
     for tool in _COMMAND_TOOLS:
         if re.search(rf"(?<![\w-]){re.escape(tool)}(?:\s|$)", lowered):
             kind = "runtime" if tool in {"node", "python", "python3"} else "execution-tool"
-            _add(found, tool, kind, None, source)
+            _add(found, tool, kind, None, source, purpose=purpose)
 
 
 def _discover_readme_and_setup(root: Path, found: list[TargetRequirement]) -> None:
@@ -173,14 +191,15 @@ def _discover_ci_requirements(root: Path, found: list[TargetRequirement]) -> Non
         if not text:
             continue
         source = str(path.relative_to(root))
+        purpose = "e2e" if re.search(r"(?:^|[^\w])e2e(?:[^\w]|$)", path.stem, re.I) else "ci"
         if re.search(r"uses:\s*actions/setup-node(?:@|\s)", text):
             match = re.search(r"node-version:\s*[\"']?([^\s\"']+)", text)
-            _add(found, "node", "runtime", match.group(1) if match else None, source)
+            _add(found, "node", "runtime", match.group(1) if match else None, source, required=False, purpose=purpose)
         if re.search(r"uses:\s*pnpm/action-setup(?:@|\s)", text):
             match = re.search(r"version:\s*[\"']?([^\s\"']+)", text)
-            _add(found, "pnpm", "package-manager", match.group(1) if match else None, source)
+            _add(found, "pnpm", "package-manager", match.group(1) if match else None, source, required=False, purpose=purpose)
         if re.search(r"\bdocker(?:\s+compose|-compose)?\b", text, re.I):
-            _add(found, "docker", "execution-tool", None, source)
+            _add(found, "docker", "execution-tool", None, source, required=False, purpose="e2e" if purpose == "e2e" else "ci")
 
 
 def discover_requirements(root: str | Path) -> tuple[TargetRequirement, ...]:
@@ -191,9 +210,9 @@ def discover_requirements(root: str | Path) -> tuple[TargetRequirement, ...]:
     _discover_readme_and_setup(root, found)
     _discover_ci_requirements(root, found)
 
-    unique: dict[tuple[str, str, str | None, str], TargetRequirement] = {}
+    unique: dict[tuple[str, str, str | None, str, str], TargetRequirement] = {}
     for item in found:
-        unique[(item.name, item.kind, item.version, item.source)] = item
+        unique[(item.name, item.kind, item.version, item.source, item.purpose)] = item
     return tuple(unique.values())
 
 
@@ -219,10 +238,14 @@ def _numeric_version(value: str) -> tuple[int, ...] | None:
 def _matches_version(observed: str | None, required: str | None) -> bool:
     if required in (None, "present"):
         return observed is not None or required == "present"
+    required = required.strip()
+    if not _numeric_version(required):
+        # Channel labels such as lts/* are declarations, not numeric constraints.
+        # They remain observable evidence but cannot prove a specific version.
+        return False
     actual = _numeric_version(observed or "")
     if actual is None:
         return False
-    required = required.strip()
     if required.startswith(">="):
         expected = _numeric_version(required[2:])
         return expected is not None and actual >= expected
@@ -256,16 +279,29 @@ def verify_requirements(root: str | Path, requirements: Iterable[TargetRequireme
         else:
             observed = _version(requirement.name)
             available = _matches_version(observed, requirement.version)
-        reason = "declared target requirement satisfied" if available else "target requirement is missing or version-incompatible"
+        if available:
+            reason = "declared target requirement satisfied"
+        elif requirement.version and not _numeric_version(requirement.version):
+            reason = "non-numeric CI/channel declaration; does not establish a canonical version"
+        else:
+            reason = "target requirement is missing or version-incompatible"
         capabilities.append(TargetCapability(requirement, available, observed, reason))
     return TargetEnvironmentReport(str(root), requirements, tuple(capabilities))
 
 
 def format_report(report: TargetEnvironmentReport) -> str:
     lines = [f"TARGET ENVIRONMENT: {'READY' if report.ready else 'BLOCKED'}", f"root: {report.root}"]
-    for capability in report.capabilities:
-        req = capability.requirement
-        declared = f" {req.version}" if req.version else ""
-        observed = f" [{capability.observed}]" if capability.observed else ""
-        lines.append(f"{'PASS' if capability.available else 'FAIL'} {req.name}{declared}{observed} — {req.source}")
+    purposes = sorted({c.requirement.purpose for c in report.capabilities})
+    for purpose in purposes:
+        scoped = report.capabilities_for(purpose)
+        if not scoped:
+            continue
+        status = "READY" if report.ready_for(purpose) else "BLOCKED"
+        lines.append(f"{purpose}: {status}")
+        for capability in scoped:
+            req = capability.requirement
+            declared = f" {req.version}" if req.version else ""
+            observed = f" [{capability.observed}]" if capability.observed else ""
+            required = "required" if req.required else "informational"
+            lines.append(f"  {'PASS' if capability.available else 'FAIL'} {req.name}{declared}{observed} ({required}) — {req.source}")
     return "\n".join(lines)
