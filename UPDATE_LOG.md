@@ -1,5 +1,30 @@
 # CYDRA UPDATE LOG
 
+## 2026-09-05 — ens-snapshot-lineage-resolution
+
+### Change
+Closed the next M3 source-identity sub-boundary by recording the public ENS contest fork's explicit lineage declaration without falsely treating its Git object as identical to the Immunefi-published audited commit.
+
+### Evidence
+- Official Immunefi continues to publish audited revision `63772fd872af472ced58b009499355f3430c2a86` for the live ENS competition.
+- Public repository `immunefi-team/audit-comp-ens` contains root/fork commit `cda79acaad59711b943fc68207ebb3f1d0ff8596` whose commit message explicitly states it is a fork of `ensdomains/apps-monorepo` at the published audited revision.
+- The public fork's commit SHA is therefore a distinct Git object from the audited upstream SHA. The lineage declaration is evidence, not cryptographic equality and not build verification.
+- Direct resolution of the audited SHA in the accessible public repository remains unavailable.
+
+### Implementation
+Added `cydra/ens_source_identity.py` with an immutable `ENSSourceLineage` record and explicit `DECLARED_SNAPSHOT_LINEAGE` status. The record preserves repository, audited revision, snapshot commit, declared origin, and declaration text while exposing `is_exact_git_identity == False` and `build_ready == False` for the current state.
+
+Added regression tests proving the lineage is preserved while the audit/build gate remains closed.
+
+### Safety semantics
+A project-declared fork lineage may identify the intended source snapshot, but it does not silently promote that snapshot to exact audited Git identity or build-ready status. Active testing remains blocked until the source/build identity boundary is independently resolved.
+
+### Validation status
+The implementation and tests were written directly to `live-immunefi-work` as commits `5890d27b011db4ba3bd8edc6a9c4a71b64dddf32` and `461402d0a8196f74618ef88578d2ca5d62f81571`. GitHub Actions has not been verified for these commits, so CI is **not claimed green**.
+
+### Next boundary
+Obtain and verify the complete ENS snapshot/build at the declared lineage, including the lockfile and toolchain identity, then establish a reproducible build receipt before projecting source into the canonical SystemModel.
+
 ## 2026-09-05 — live-ens-intake-resource-graph-boundary
 
 ### Change
