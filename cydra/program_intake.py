@@ -103,10 +103,11 @@ def discover_references(*,parent_resource_id,base_locator,content):
         authority,kind=classify_link(loc);key=(kind,loc)
         if key not in seen:seen.add(key);out.append(ResourceDiscovery(parent_resource_id,loc,kind,authority,False,"reference discovered from acquired program material; authorization unresolved"))
     return tuple(out)
-def extract_known_issues(*,acquired):
+def extract_known_issues(*,acquired,source_resource_id=None):
     text=re.sub(r"<[^>]+>"," ",acquired.content);text=re.sub(r"\s+"," ",text)
     if not re.search(r"known issues?|previously identified|not eligible",text,re.I):return ()
-    return (KnownIssue("known:"+hashlib.sha256(acquired.locator.encode()).hexdigest()[:16],"Program-published known issues",canonical_resource_id(ResourceKind.PROGRAM,acquired.locator),KnownIssueStatus.INELIGIBLE_KNOWN),)
+    source_id=source_resource_id or canonical_resource_id(ResourceKind.PROGRAM,acquired.locator)
+    return (KnownIssue("known:"+hashlib.sha256(acquired.locator.encode()).hexdigest()[:16],"Program-published known issues",source_id,KnownIssueStatus.INELIGIBLE_KNOWN),)
 def parse_immunefi_program(*,locator,pages):
     slug=ImmunefiAcquisitionAdapter.program_slug(locator); info=next(p for p in pages if "/information/" in p.locator); scope=next((p for p in pages if "/scope/" in p.locator),None); resources=next((p for p in pages if "/resources/" in p.locator),None)
     primary=resource_from_acquisition(kind=ResourceKind.PROGRAM,acquired=info,adapter="immunefi",authority=AuthorityClass.AUTHORITATIVE); rs=[primary]
@@ -115,8 +116,9 @@ def parse_immunefi_program(*,locator,pages):
     text=re.sub(r"<[^>]+>"," "," ".join(p.content for p in pages)); assertions=[]
     if re.search(r"PoC|proof of concept",text,re.I):assertions.append(ProgramAssertion("assertion:poc","poc_requirement","Program requires a proof of concept",primary.resource_id,AuthorityClass.AUTHORITATIVE))
     if re.search(r"known issues?.*not eligible|previously.*not eligible",text,re.I):assertions.append(ProgramAssertion("assertion:known-issues","known_issue_policy","Known issues/duplicates are not eligible",primary.resource_id,AuthorityClass.AUTHORITATIVE))
-    known_issue_source = resources or scope or info
-    return build_program_contract(program_id=slug,display_name=slug,primary_locator=primary.locator,resources=rs,assertions=assertions,known_issues=extract_known_issues(acquired=known_issue_source),intake_context="Immunefi authoritative program pages")
+    known_issue_source=resources or scope or info
+    known_issue_resource=next(resource for resource in rs if resource.locator==known_issue_source.locator)
+    return build_program_contract(program_id=slug,display_name=slug,primary_locator=primary.locator,resources=rs,assertions=assertions,known_issues=extract_known_issues(acquired=known_issue_source,source_resource_id=known_issue_resource.resource_id),intake_context="Immunefi authoritative program pages")
 class DocumentFetcher(Protocol):
     def fetch(self,locator):...
 class ImmunefiAcquisitionAdapter:
