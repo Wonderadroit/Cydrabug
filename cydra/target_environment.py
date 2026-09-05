@@ -112,22 +112,40 @@ def _version(executable: str) -> str | None:
     return text.splitlines()[0][:500] if result.returncode == 0 and text else None
 
 
+def _numeric_version(value: str) -> tuple[int, ...] | None:
+    match = re.search(r"\d+(?:\.\d+){0,2}", value)
+    if not match:
+        return None
+    return tuple(int(part) for part in match.group(0).split("."))
+
+
 def _matches_version(observed: str | None, required: str | None) -> bool:
     if required in (None, "present"):
         return observed is not None or required == "present"
-    if observed is None:
+    actual = _numeric_version(observed or "")
+    if actual is None:
         return False
-    numbers = re.findall(r"\d+(?:\.\d+){0,2}", observed)
-    if not numbers:
-        return False
-    actual = numbers[0]
+    required = required.strip()
+    if required.startswith(">="):
+        expected = _numeric_version(required[2:])
+        return expected is not None and actual >= expected
+    if required.startswith(">"):
+        expected = _numeric_version(required[1:])
+        return expected is not None and actual > expected
+    if required.startswith("<="):
+        expected = _numeric_version(required[2:])
+        return expected is not None and actual <= expected
+    if required.startswith("<"):
+        expected = _numeric_version(required[1:])
+        return expected is not None and actual < expected
     if required.startswith("^"):
-        return actual.split(".")[0] == required[1:].split(".")[0]
+        expected = _numeric_version(required[1:])
+        return expected is not None and actual[0] == expected[0] and actual >= expected
     if required.startswith("~"):
-        return actual.split(".")[:2] == required[1:].split(".")[:2]
-    if required[0].isdigit():
-        return actual == required or actual.startswith(required + ".")
-    return True
+        expected = _numeric_version(required[1:])
+        return expected is not None and actual[:2] == expected[:2] and actual >= expected
+    expected = _numeric_version(required)
+    return expected is not None and actual[:len(expected)] == expected
 
 
 def verify_requirements(root: str | Path, requirements: Iterable[TargetRequirement] | None = None) -> TargetEnvironmentReport:
