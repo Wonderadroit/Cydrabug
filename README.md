@@ -18,8 +18,34 @@ The live target is used to expose real engineering and reasoning boundaries. It 
 
 `System behavior → invariants → evidence → competing hypotheses → information-gain testing → observation → belief update → persistent system model → causal verification → finding`
 
+## Runtime and target environment
+
+CYDRA now has an executable environment boundary rather than relying on documentation alone.
+
+Base runtime check:
+
+```bash
+python -m cydra.runtime
+```
+
+Operator doctor:
+
+```bash
+python -m cydra.doctor
+```
+
+After a target checkout has been acquired through the authorized intake flow:
+
+```bash
+python -m cydra.doctor --target /path/to/target
+```
+
+The target environment detector reads repository declarations such as `package.json`, lockfiles, `.nvmrc`, `foundry.toml`, and `Cargo.toml`, then reports missing or incompatible capabilities. It does **not** automatically install arbitrary target-supplied software or treat a declaration as testing authority.
+
+The first supported mobile production profile is **Ubuntu under PRoot**. Native Linux and other isolated execution backends can be added without changing CYDRA's reasoning model.
+
 ## Immediate next step
 
-Acquire the current ENS Immunefi program context, preserve provenance and authority, and construct the canonical `ProgramContract` and resource dependency graph before moving downstream into source/build analysis.
+Validate the new runtime/target environment boundary in the user's PRoot Ubuntu runtime, then continue ENS source/build verification. A target is not considered reproducible merely because its declared dependencies can be installed.
 
 See the Project Bible for the full development doctrine, milestones, authorization boundaries, evidence rules, and definition of done.
