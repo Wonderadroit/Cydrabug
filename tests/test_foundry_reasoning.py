@@ -41,6 +41,9 @@ def test_trusted_foundry_projection_feeds_existing_candidate_discovery(monkeypat
     assert result.candidates
     assert any(item.metadata["category"] == "state_transition_expression" for item in result.candidates)
     assert all(isinstance(item, InvariantCandidate) for item in result.candidates)
+    assert len(result.hypotheses) == 2 * len(result.candidates)
+    assert len(result.observations) == len(result.candidates)
+    assert result.next_plan is not None
 
 
 def test_foundry_reasoning_does_not_promote_candidates_to_verified_invariants(monkeypatch):
@@ -66,5 +69,35 @@ def test_foundry_reasoning_does_not_promote_candidates_to_verified_invariants(mo
     result = discover_foundry_invariant_candidates(model, _AcceptedBuild())
 
     assert result.candidates
+    assert all(h.belief == 0.5 for h in result.hypotheses)
+    assert all(h.state.value == "unresolved" for h in result.hypotheses)
+    assert all(o.authorized for o in result.observations)
+    assert result.next_plan is not None
+    assert result.next_plan.execution_id is None
+    assert result.next_plan.execution_request_digest is None
     assert not any(node.kind == "invariant" for node in model.nodes.values())
     assert not any(node.attributes.get("verification_state") for node in model.nodes.values())
+
+
+def test_discovery_confidence_never_becomes_hypothesis_belief(monkeypatch):
+    model = SystemModel()
+    model.add_node(Node("function:Vault:ast:10", "function", "deposit"))
+    model.add_node(Node("state_variable:Vault:ast:20", "state_variable", "balance"))
+    model.add_edge(Edge(
+        "function:Vault:ast:10", "transition_expression", "state_variable:Vault:ast:20",
+        {
+            "evidence_backed": True,
+            "candidate": True,
+            "provenance": "solc-json-ast:contracts/Vault.sol",
+            "confidence": 1.0,
+            "ast_node_id": 30,
+            "expression": "balance + amount",
+        },
+    ))
+    monkeypatch.setattr("cydra.foundry_reasoning.project_accepted_ast_evidence", lambda model, build: ())
+
+    result = discover_foundry_invariant_candidates(model, _AcceptedBuild())
+
+    assert result.candidates[0].confidence == 1.0
+    assert [h.belief for h in result.hypotheses] == [0.5, 0.5]
+    assert all(h.state.value == "unresolved" for h in result.hypotheses)
