@@ -8,11 +8,24 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from .execution_evidence import ExecutionEvidence, _fingerprint
 from .external_execution import ExternalExecutionGateway, ExternalExecutionResult
 from .execution_request import ExecutionRequest
 from .verification import VariantObservation
 
 _ALLOWED_OUTCOMES = frozenset({"INVARIANT_VIOLATED", "INVARIANT_PRESERVED", "INCONCLUSIVE"})
+
+
+def _observation_payload(result: ExternalExecutionResult, request: ExecutionRequest) -> Mapping[str, object]:
+    payload = result.canonical_payload()
+    if not isinstance(payload, Mapping):
+        raise TypeError("trusted result canonical payload must be a mapping")
+    required = {"execution_id", "request_digest", "variant_id", "verification_outcome", "mechanism_fingerprint", "evidence_id"}
+    if not required.issubset(payload):
+        raise ValueError("trusted result does not contain a complete verification observation")
+    if payload["execution_id"] != request.execution_id or payload["request_digest"] != request.digest:
+        raise ValueError("trusted result observation identity does not match execution request")
+    return payload
 
 
 def variant_observation_from_trusted_result(
@@ -22,10 +35,9 @@ def variant_observation_from_trusted_result(
 ) -> VariantObservation:
     """Build a VariantObservation only from a gateway-trusted, self-bound result.
 
-    The result must carry its variant identity, verification outcome, mechanism
-    fingerprint, and evidence identity in its canonical durable payload. These
-    fields are therefore part of the authenticated execution receipt rather
-    than caller-supplied arguments to verification.
+    Variant identity, evidence identity, outcome, mechanism fingerprint, and
+    confidence are read from the durable result. No verification classification
+    is accepted as a separate caller argument.
     """
     if not isinstance(gateway, ExternalExecutionGateway):
         raise TypeError("gateway must be an ExternalExecutionGateway")
@@ -37,15 +49,7 @@ def variant_observation_from_trusted_result(
     if result.execution_id != request.execution_id or result.request_digest != request.digest:
         raise ValueError("trusted result is not bound to the supplied execution request")
 
-    payload = result.canonical_payload()
-    if not isinstance(payload, Mapping):
-        raise TypeError("trusted result canonical payload must be a mapping")
-    required = {"execution_id", "request_digest", "variant_id", "verification_outcome", "mechanism_fingerprint", "evidence_id"}
-    if not required.issubset(payload):
-        raise ValueError("trusted result does not contain a complete verification observation")
-    if payload["execution_id"] != request.execution_id or payload["request_digest"] != request.digest:
-        raise ValueError("trusted result observation identity does not match execution request")
-
+    payload = _observation_payload(result, request)
     variant_id = payload["variant_id"]
     evidence_id = payload["evidence_id"]
     outcome = payload["verification_outcome"]
@@ -60,3 +64,37 @@ def variant_observation_from_trusted_result(
     if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
         raise ValueError("trusted result verification confidence must be numeric")
     return VariantObservation(variant_id, evidence_id, outcome, mechanism, float(confidence))
+
+
+def execution_evidence_from_trusted_variant(
+    gateway: ExternalExecutionGateway,
+    request: ExecutionRequest,
+    result: ExternalExecutionResult,
+) -> ExecutionEvidence:
+    """Create canonical evidence from the same trusted receipt as a variant observation.
+
+    The evidence fingerprint covers the complete canonical result payload, so a
+    later observation cannot silently refer to a different receipt. Polarity is
+    derived from the trusted verification outcome rather than caller input.
+    """
+    gateway.require_trusted_result(result)
+    observation = variant_observation_from_trusted_result(gateway, request, result)
+    payload = dict(result.canonical_payload())
+    receipt_fingerprint = _fingerprint(payload)
+    polarity = {
+        "INVARIANT_VIOLATED": "supports",
+        "INVARIANT_PRESERVED": "contradicts",
+        "INCONCLUSIVE": "neutral",
+    }[observation.outcome]
+    return ExecutionEvidence(
+        evidence_id=observation.evidence_id,
+        observation_name="variant_verification",
+        execution_id=request.execution_id,
+        request_digest=request.digest,
+        adapter=request.adapter,
+        outcome=observation.outcome,
+        receipt_fingerprint=receipt_fingerprint,
+        payload=payload,
+        polarity=polarity,
+        confidence=observation.confidence,
+    )
