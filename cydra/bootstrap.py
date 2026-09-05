@@ -64,14 +64,20 @@ def build_plan(
     container: str = DEFAULT_CONTAINER,
     command: Sequence[str] = ("python3", "-m", "cydra.doctor"),
 ) -> BootstrapPlan:
-    """Build a deterministic host-side PRoot launch plan without executing it."""
+    """Build a deterministic host-side PRoot launch plan without executing it.
+
+    With ``--shared-home``, PRoot-Distro exposes the host home at its original
+    absolute path. It does not remap that path to ``/root``. Preserve the
+    absolute repository path for repositories under the host home so the plan
+    matches the actual supported runtime topology.
+    """
     repo = Path(repository).expanduser().resolve()
     if not repo.is_dir():
         raise ValueError(f"repository directory does not exist: {repo}")
 
     home = Path.home().resolve()
     try:
-        relative = repo.relative_to(home)
+        repo.relative_to(home)
     except ValueError:
         guest_repository = GUEST_WORKSPACE
         bind = f"{repo}:{guest_repository}"
@@ -88,7 +94,7 @@ def build_plan(
         )
         return BootstrapPlan(container, repo, guest_repository, False, launch)
 
-    guest_repository = "/root" if str(relative) == "." else f"/root/{relative.as_posix()}"
+    guest_repository = repo.as_posix()
     launch = (
         "proot-distro",
         "login",
