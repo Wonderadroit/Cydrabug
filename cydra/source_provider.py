@@ -1,9 +1,4 @@
-"""Language-neutral source observation contract for CYDRA.
-
-Providers may use language-native parsers, compiler ASTs, or specialized tools.
-They emit observations; CYDRA does not treat a provider's output as a security
-conclusion. Provenance and semantic strength stay attached to every observation.
-"""
+"""Language-neutral source observation contract for CYDRA."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -36,6 +31,15 @@ class ObservationStrength(str, Enum):
 
 
 @dataclass(frozen=True)
+class SourceRelationship:
+    """An explicitly established relationship between normalized observations."""
+
+    relation: str
+    target_observation_id: str
+    attributes: Mapping[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class SourceObservation:
     """A normalized source fact, not a vulnerability conclusion."""
 
@@ -50,6 +54,7 @@ class SourceObservation:
     strength: ObservationStrength = ObservationStrength.UNRESOLVED
     provenance: tuple[str, ...] = ()
     scope_state: str = "UNKNOWN"
+    relationships: tuple[SourceRelationship, ...] = ()
 
 
 class SourceProvider(Protocol):
