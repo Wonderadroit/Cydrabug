@@ -37,21 +37,25 @@ def _require_executable(name: str) -> str:
 
 
 def _container_exists(container: str) -> bool:
-    """Determine whether the named container is installed and launchable.
+    """Determine whether the named PRoot-Distro container is installed.
 
-    ``proot-distro list`` is human-oriented output and can vary with terminal
-    formatting. A no-op guest launch is a stronger machine-checkable boundary:
-    it proves that PRoot-Distro can resolve and enter the requested container
-    without executing any target software.
+    PRoot-Distro exposes a machine-friendly ``list --quiet`` form that emits
+    installed container names one per line. Using that boundary avoids treating
+    an execution-context difference in a guest launch probe as evidence that an
+    installed container is absent. Actual launchability is verified when CYDRA
+    enters the container and runs its doctor command.
     """
     _require_executable("proot-distro")
     result = subprocess.run(
-        ["proot-distro", "login", container, "--", "true"],
+        ["proot-distro", "list", "--quiet"],
         capture_output=True,
         text=True,
         check=False,
     )
-    return result.returncode == 0
+    if result.returncode != 0:
+        return False
+    installed = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+    return container in installed
 
 
 def build_plan(
@@ -99,11 +103,11 @@ def build_plan(
 
 
 def verify_host(container: str = DEFAULT_CONTAINER) -> tuple[bool, str]:
-    """Verify the host launcher and named Ubuntu container without entering it."""
+    """Verify the host launcher and named PRoot-Distro container installation."""
     _require_executable("proot-distro")
     if not _container_exists(container):
-        return False, f"PRoot-Distro container not installed or not launchable: {container}"
-    return True, f"PRoot-Distro container available: {container}"
+        return False, f"PRoot-Distro container not installed: {container}"
+    return True, f"PRoot-Distro container installed: {container}"
 
 
 def run_plan(plan: BootstrapPlan) -> int:
