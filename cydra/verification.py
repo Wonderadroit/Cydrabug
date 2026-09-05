@@ -37,7 +37,7 @@ def verify_candidate_from_variants(
     """Classify a candidate from variant observations without executing anything.
 
     A supported result requires at least two distinct variants, all with the
-    preserved outcome, and a common mechanism fingerprint. A preserved result
+    violating outcome, and a common mechanism fingerprint. A preserved result
     contradicts the violation hypothesis. Mixed outcomes or mechanisms remain
     unresolved. Identical repeated executions do not count as distinct variants.
     """
