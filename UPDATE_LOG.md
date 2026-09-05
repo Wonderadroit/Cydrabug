@@ -1,5 +1,31 @@
 # CYDRA UPDATE LOG
 
+## 2026-09-05 — live-ens-intake-resource-graph-boundary
+
+### Change
+Continued the Bible-defined M1/M2 live-contest boundary by adding regression coverage for canonical ENS Immunefi acquisition and provenance-preserving resource dependency expansion.
+
+### Added / verified
+- Canonical Immunefi acquisition is exercised only through the ENS `information/`, `scope/`, and `resources/` pages.
+- Non-Immunefi acquisition is rejected by the Immunefi adapter.
+- Resource dependency expansion preserves project authority, parent-resource provenance, acquisition state, and unresolved scope rather than silently granting testing authority.
+- The test uses the canonical ENS repository binding already defined by `cydra/ens_target.py` and does not promote an unresolved dependency to in-scope testing.
+
+### Live context
+The official Immunefi ENS Audit Competition page is currently live and continues to publish the audited revision `63772fd872af472ced58b009499355f3430c2a86`, Node v22, pnpm v10, and the scoped Manager app, Explorer app, Workers, transaction-manager, and smart-account areas. Current official pages remain the authority for active contest state.
+
+### Validation status
+The change was written directly to `live-immunefi-work` as commit `0a212311dc42faa1950016315d4e129ec1e2ec91`. GitHub Actions has not been verified for this commit, so CI is **not claimed green**.
+
+### Next boundary
+Acquire and verify the exact ENS repository at the published audited revision, establish reproducible build identity, and only then project the accepted source representation into the SystemModel. Do not begin active testing or downstream specialized-tool execution before the program/source authority gates are satisfied.
+
+## 2026-09-05 — agent-operating-contract
+
+Added `AGENTS.md` as the mandatory operational contract requiring every future CYDRA code change and recommendation to read and follow `CYDRA_PROJECT_BIBLE.md` first and prohibiting work outside the Bible's mission, boundaries, milestones, and doctrine.
+
+Commit: `48e4c419dc0fa1f161bb742b8cb6df546237311d`.
+
 ## 2026-09-05 — ens-target-correction-and-intake-hardening
 
 ### Change
