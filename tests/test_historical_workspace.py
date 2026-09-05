@@ -7,7 +7,7 @@ from cydra.historical_evaluation import EvaluationPhase, HistoricalEvaluation
 from cydra.historical_workspace import arbitration_boost_2024, materialize_blind_workspace
 
 
-def make_git_checkout(tmp_path: Path, revision: str) -> Path:
+def make_git_checkout(tmp_path: Path) -> tuple[Path, str]:
     root = tmp_path / "source"
     root.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
@@ -22,9 +22,12 @@ def make_git_checkout(tmp_path: Path, revision: str) -> Path:
     subprocess.run(["git", "add", "."], cwd=root, check=True)
     subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
     actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
-    if actual != revision:
-        raise RuntimeError("fixture revision must be supplied by the test caller")
-    return root
+    return root, actual
+
+
+def fixture_spec(revision: str):
+    base = arbitration_boost_2024()
+    return type(base)(base.evaluation_id, base.repository, revision, base.allowed_paths, base.excluded_names)
 
 
 def test_arbitration_spec_is_exact():
@@ -42,23 +45,26 @@ def test_non_git_checkout_is_rejected(tmp_path):
         materialize_blind_workspace(root, tmp_path / "blind", arbitration_boost_2024())
 
 
-def test_allowlist_does_not_copy_oracle_like_paths(tmp_path):
-    spec = arbitration_boost_2024()
-    assert all("reports" not in p.lower() for p in spec.allowed_paths)
-    assert all("findings" not in p.lower() for p in spec.allowed_paths)
-
-
 def test_revision_mismatch_fails_closed(tmp_path):
-    root = tmp_path / "source"
-    root.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-    (root / "README.md").write_text("fixture", encoding="utf-8")
-    subprocess.run(["git", "add", "."], cwd=root, check=True)
-    subprocess.run(["git", "config", "user.email", "cydra@test"], cwd=root, check=True)
-    subprocess.run(["git", "config", "user.name", "CYDRA Test"], cwd=root, check=True)
-    subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
+    root, _ = make_git_checkout(tmp_path)
     with pytest.raises(RuntimeError, match="revision mismatch"):
         materialize_blind_workspace(root, tmp_path / "blind", arbitration_boost_2024())
+
+
+def test_dirty_tracked_checkout_is_rejected(tmp_path):
+    root, revision = make_git_checkout(tmp_path)
+    spec = fixture_spec(revision)
+    (root / "src" / "Vault.sol").write_text("tampered", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="must be clean"):
+        materialize_blind_workspace(root, tmp_path / "blind", spec)
+
+
+def test_untracked_file_is_rejected_even_outside_allowlist(tmp_path):
+    root, revision = make_git_checkout(tmp_path)
+    spec = fixture_spec(revision)
+    (root / "oracle-answer.txt").write_text("forbidden", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="must be clean"):
+        materialize_blind_workspace(root, tmp_path / "blind", spec)
 
 
 def test_phase_order_is_explicit_and_oracle_is_sealed():
