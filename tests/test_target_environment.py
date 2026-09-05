@@ -30,3 +30,17 @@ def test_verify_requirements_reports_missing_capability_without_installing(tmp_p
     assert not report.ready
     assert "pnpm" in report.missing_required
     assert (tmp_path / "package.json").read_text(encoding="utf-8")
+
+
+def test_version_constraints_are_not_treated_as_unconditional(monkeypatch, tmp_path):
+    (tmp_path / "package.json").write_text(
+        json.dumps({"engines": {"node": ">=22"}}), encoding="utf-8"
+    )
+    monkeypatch.setattr("cydra.target_environment.shutil.which", lambda executable: executable)
+    monkeypatch.setattr(
+        "cydra.target_environment.subprocess.run",
+        lambda *args, **kwargs: type("Result", (), {"returncode": 0, "stdout": "v20.11.0\n", "stderr": ""})(),
+    )
+    report = verify_requirements(tmp_path)
+    assert not report.ready
+    assert "node" in report.missing_required
