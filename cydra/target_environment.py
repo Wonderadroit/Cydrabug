@@ -47,21 +47,16 @@ class TargetEnvironmentReport:
 
     @property
     def missing_required(self) -> tuple[str, ...]:
-        return tuple(
-            c.requirement.name
-            for c in self.capabilities
-            if c.requirement.required and not c.available
-        )
+        return tuple(c.requirement.name for c in self.capabilities if c.requirement.required and not c.available)
 
     def capabilities_for(self, purpose: str) -> tuple[TargetCapability, ...]:
         return tuple(c for c in self.capabilities if c.requirement.purpose == purpose)
 
     def ready_for(self, purpose: str) -> bool:
         scoped = self.capabilities_for(purpose)
-        return all(c.available for c in scoped if c.requirement.required)
+        return bool(scoped) and all(c.available for c in scoped)
 
 
-_VERSIONED_TOOLS = ("node", "pnpm", "npm", "yarn", "python", "python3", "forge", "cargo")
 _COMMAND_TOOLS = ("docker", "forge", "cargo", "pnpm", "npm", "yarn", "node", "python", "python3")
 _SETUP_FILENAMES = {"CONTRIBUTING.md", "DEVELOPMENT.md", "SETUP.md", "INSTALL.md", "DEVELOPING.md"}
 
@@ -81,17 +76,7 @@ def _read_text(path: Path) -> str:
         return ""
 
 
-def _add(
-    found: list[TargetRequirement],
-    name: str,
-    kind: str,
-    version: str | None,
-    source: str,
-    *,
-    authority: str = "PROJECT",
-    required: bool = True,
-    purpose: str = "canonical-build",
-) -> None:
+def _add(found: list[TargetRequirement], name: str, kind: str, version: str | None, source: str, *, authority: str = "PROJECT", required: bool = True, purpose: str = "canonical-build") -> None:
     found.append(TargetRequirement(name, kind, version, source, required, authority, purpose))
 
 
@@ -121,12 +106,9 @@ def _discover_manifest_requirements(root: Path, found: list[TargetRequirement]) 
             if version and version[0]:
                 _add(found, tool, "runtime", version[0].strip(), filename)
 
-    if (root / "pnpm-lock.yaml").is_file():
-        _add(found, "pnpm-lock.yaml", "lockfile", "present", "repository")
-    if (root / "package-lock.json").is_file():
-        _add(found, "package-lock.json", "lockfile", "present", "repository")
-    if (root / "yarn.lock").is_file():
-        _add(found, "yarn.lock", "lockfile", "present", "repository")
+    for filename in ("pnpm-lock.yaml", "package-lock.json", "yarn.lock"):
+        if (root / filename).is_file():
+            _add(found, filename, "lockfile", "present", "repository")
     if (root / "foundry.toml").is_file():
         _add(found, "forge", "execution-tool", None, "foundry.toml")
     if (root / "Cargo.toml").is_file():
@@ -137,7 +119,6 @@ def _discover_manifest_requirements(root: Path, found: list[TargetRequirement]) 
 
 
 def _discover_commands(source: str, text: str, found: list[TargetRequirement], *, purpose: str = "canonical-build") -> None:
-    """Extract tools only from explicit command-like text, never from prose."""
     lowered = text.lower()
     for tool in _COMMAND_TOOLS:
         if re.search(rf"(?<![\w-]){re.escape(tool)}(?:\s|$)", lowered):
@@ -169,17 +150,20 @@ def _discover_readme_and_setup(root: Path, found: list[TargetRequirement]) -> No
         text = _read_text(path)
         if not text:
             continue
-        blocks = re.findall(
-            r"```(?:bash|sh|shell|console|zsh)?\s*\n(.*?)```",
-            text,
-            flags=re.I | re.S,
-        )
+        blocks = re.findall(r"```(?:bash|sh|shell|console|zsh)?\s*\n(.*?)```", text, flags=re.I | re.S)
         commands = "\n".join(blocks)
-        commands += "\n" + "\n".join(
-            line[2:].strip() for line in text.splitlines() if line.lstrip().startswith("$ ")
-        )
+        commands += "\n" + "\n".join(line[2:].strip() for line in text.splitlines() if line.lstrip().startswith("$ "))
         if commands.strip():
             _discover_commands(str(path.relative_to(root)), commands, found)
+
+
+def _workflow_value(text: str, action: str, key: str) -> str | None:
+    """Read a value from the setup block belonging to one GitHub Action."""
+    match = re.search(rf"uses:\s*{re.escape(action)}(?:@|\s)[^\n]*\n(?P<body>(?:(?!^\s*-\s+uses:).)*?)", text, flags=re.I | re.M | re.S)
+    if not match:
+        return None
+    value = re.search(rf"^\s*{re.escape(key)}:\s*[\"']?([^\s\"']+)", match.group("body"), flags=re.I | re.M)
+    return value.group(1) if value else None
 
 
 def _discover_ci_requirements(root: Path, found: list[TargetRequirement]) -> None:
@@ -193,23 +177,19 @@ def _discover_ci_requirements(root: Path, found: list[TargetRequirement]) -> Non
         source = str(path.relative_to(root))
         purpose = "e2e" if re.search(r"(?:^|[^\w])e2e(?:[^\w]|$)", path.stem, re.I) else "ci"
         if re.search(r"uses:\s*actions/setup-node(?:@|\s)", text):
-            match = re.search(r"node-version:\s*[\"']?([^\s\"']+)", text)
-            _add(found, "node", "runtime", match.group(1) if match else None, source, required=False, purpose=purpose)
+            _add(found, "node", "runtime", _workflow_value(text, "actions/setup-node", "node-version"), source, required=False, purpose=purpose)
         if re.search(r"uses:\s*pnpm/action-setup(?:@|\s)", text):
-            match = re.search(r"version:\s*[\"']?([^\s\"']+)", text)
-            _add(found, "pnpm", "package-manager", match.group(1) if match else None, source, required=False, purpose=purpose)
+            _add(found, "pnpm", "package-manager", _workflow_value(text, "pnpm/action-setup", "version"), source, required=False, purpose=purpose)
         if re.search(r"\bdocker(?:\s+compose|-compose)?\b", text, re.I):
             _add(found, "docker", "execution-tool", None, source, required=False, purpose="e2e" if purpose == "e2e" else "ci")
 
 
 def discover_requirements(root: str | Path) -> tuple[TargetRequirement, ...]:
-    """Extract target prerequisites without executing or installing target software."""
     root = Path(root).resolve()
     found: list[TargetRequirement] = []
     _discover_manifest_requirements(root, found)
     _discover_readme_and_setup(root, found)
     _discover_ci_requirements(root, found)
-
     unique: dict[tuple[str, str, str | None, str, str], TargetRequirement] = {}
     for item in found:
         unique[(item.name, item.kind, item.version, item.source, item.purpose)] = item
@@ -240,8 +220,6 @@ def _matches_version(observed: str | None, required: str | None) -> bool:
         return observed is not None or required == "present"
     required = required.strip()
     if not _numeric_version(required):
-        # Channel labels such as lts/* are declarations, not numeric constraints.
-        # They remain observable evidence but cannot prove a specific version.
         return False
     actual = _numeric_version(observed or "")
     if actual is None:
@@ -291,11 +269,8 @@ def verify_requirements(root: str | Path, requirements: Iterable[TargetRequireme
 
 def format_report(report: TargetEnvironmentReport) -> str:
     lines = [f"TARGET ENVIRONMENT: {'READY' if report.ready else 'BLOCKED'}", f"root: {report.root}"]
-    purposes = sorted({c.requirement.purpose for c in report.capabilities})
-    for purpose in purposes:
+    for purpose in sorted({c.requirement.purpose for c in report.capabilities}):
         scoped = report.capabilities_for(purpose)
-        if not scoped:
-            continue
         status = "READY" if report.ready_for(purpose) else "BLOCKED"
         lines.append(f"{purpose}: {status}")
         for capability in scoped:
