@@ -37,22 +37,21 @@ def _require_executable(name: str) -> str:
 
 
 def _container_exists(container: str) -> bool:
+    """Determine whether the named container is installed and launchable.
+
+    ``proot-distro list`` is human-oriented output and can vary with terminal
+    formatting. A no-op guest launch is a stronger machine-checkable boundary:
+    it proves that PRoot-Distro can resolve and enter the requested container
+    without executing any target software.
+    """
     _require_executable("proot-distro")
     result = subprocess.run(
-        ["proot-distro", "list"],
+        ["proot-distro", "login", container, "--", "true"],
         capture_output=True,
         text=True,
         check=False,
     )
-    if result.returncode != 0:
-        return False
-    for line in (result.stdout or "").splitlines():
-        stripped = line.strip().lstrip("*").strip()
-        if stripped.startswith(container) and (
-            stripped == container or stripped[len(container):].startswith(" ")
-        ):
-            return True
-    return False
+    return result.returncode == 0
 
 
 def build_plan(
@@ -103,7 +102,7 @@ def verify_host(container: str = DEFAULT_CONTAINER) -> tuple[bool, str]:
     """Verify the host launcher and named Ubuntu container without entering it."""
     _require_executable("proot-distro")
     if not _container_exists(container):
-        return False, f"PRoot-Distro container not installed: {container}"
+        return False, f"PRoot-Distro container not installed or not launchable: {container}"
     return True, f"PRoot-Distro container available: {container}"
 
 
