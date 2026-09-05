@@ -104,7 +104,7 @@ def test_result_missing_observation_fields_cannot_enter_verification():
     result = gateway.execute("experiment", request, authorization=Authorization())
     result._payload.pop("verification_outcome")
 
-    with pytest.raises(ValueError, match="complete verification observation"):
+    with pytest.raises(ValueError, match="mutated after trust was established"):
         variant_observation_from_trusted_result(gateway, request, result)
 
 
