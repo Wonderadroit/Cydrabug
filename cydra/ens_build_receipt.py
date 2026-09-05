@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from typing import Mapping
 
 from .ens_build_identity import (
-    ENS_NODE_REQUIREMENT,
     ENS_NPMRC_SHA,
     ENS_PACKAGE_JSON_SHA,
     ENS_PNPM_LOCK_SHA,
@@ -19,6 +18,9 @@ from .ens_build_identity import (
     ENS_PNPM_WORKSPACE_SHA,
 )
 from .ens_target import AUDITED_REVISION, DEFAULT_REPOSITORY, DEFAULT_REVISION
+
+
+ENS_SNAPSHOT_TREE = "8e0d79dac1ab4b4fdb80d6afed8100879ae9f00ba"
 
 
 @dataclass(frozen=True)
@@ -44,16 +46,13 @@ class ENSBuildReceipt:
             self.repository == DEFAULT_REPOSITORY
             and self.audited_revision == AUDITED_REVISION
             and self.snapshot_commit == DEFAULT_REVISION
-            and self.snapshot_tree == "8e0d79dac1ab4b4fdb80d6afed8100879ae9f00ba"
+            and self.snapshot_tree == ENS_SNAPSHOT_TREE
             and self.worktree_clean
         )
 
     @property
     def toolchain_verified(self) -> bool:
-        return (
-            self.node_version.startswith("v22.")
-            and self.pnpm_version == ENS_PNPM_VERSION
-        )
+        return self.node_version.startswith("v22.") and self.pnpm_version == ENS_PNPM_VERSION
 
     @property
     def dependency_inputs_verified(self) -> bool:
@@ -103,7 +102,7 @@ def build_receipt_from_observations(
     manager_build_exit_code: int,
     worktree_clean: bool,
     snapshot_commit: str = DEFAULT_REVISION,
-    snapshot_tree: str = "8e0d79dac1ab4b4fdb80d6afed8100879ae9f00ba",
+    snapshot_tree: str = ENS_SNAPSHOT_TREE,
     file_hashes: Mapping[str, str] | None = None,
 ) -> ENSBuildReceipt:
     """Bind externally observed build evidence to the canonical ENS snapshot.
