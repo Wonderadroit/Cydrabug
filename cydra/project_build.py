@@ -75,12 +75,12 @@ def _node_toolchain(root: Path) -> ToolchainSpec:
     except json.JSONDecodeError:
         p = {}
     engines = p.get("engines", {}) if isinstance(p, dict) else {}
-    manager = p.get("packageManager") if isinstance(p, dict) else None
-    if isinstance(manager, str) and manager.startswith("pnpm@"):
-        return ToolchainSpec("node", engines.get("node") if isinstance(engines, dict) else None,
-                             "package.json:engines.node", "node")
-    return ToolchainSpec("node", engines.get("node") if isinstance(engines, dict) else None,
-                         "package.json:engines.node", "node")
+    return ToolchainSpec(
+        "node",
+        engines.get("node") if isinstance(engines, dict) else None,
+        "package.json:engines.node",
+        "node",
+    )
 
 
 def _foundry_toolchain(root: Path) -> ToolchainSpec:
@@ -106,10 +106,9 @@ def detect_project(root: str | Path) -> BuildProfile:
             p = {}
         manager = p.get("packageManager") if isinstance(p, dict) else None
         executable = "pnpm" if isinstance(manager, str) and manager.startswith("pnpm@") else "npm"
-        command = (executable, "run", "build")
         return BuildProfile(
-            "node", command, ("dist", "build"), "none", "typescript/javascript",
-            _node_toolchain(root),
+            "node", (executable, "run", "build"), ("dist", "build"), "none",
+            "typescript/javascript", _node_toolchain(root),
             tuple(x for x in ("package.json", "pnpm-lock.yaml", "package-lock.json", ".nvmrc", ".node-version") if (root / x).is_file()),
         )
     if (root / "foundry.toml").is_file():
@@ -185,28 +184,30 @@ def _discover_artifact_files(root: Path, profile: BuildProfile) -> tuple[str, ..
     return tuple(found)
 
 
+def _build_info_roots(root: Path) -> tuple[Path, ...]:
+    return tuple(path for path in (root / "out" / "build-info", root / "build-info") if path.is_dir())
+
+
 def _parse_foundry_build_info(root: Path) -> dict[str, dict[str, Any]]:
     """Extract compiler/source metadata without inventing missing compiler identity."""
     result: dict[str, dict[str, Any]] = {}
-    base = root / "build-info"
-    if not base.is_dir():
-        return result
-    for path in sorted(base.glob("*.json")):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-            continue
-        solc = data.get("solcVersion")
-        long_version = data.get("solcLongVersion")
-        input_data = data.get("input")
-        output_data = data.get("output")
-        result[path.relative_to(root).as_posix()] = {
-            "solc_version": solc,
-            "solc_long_version": long_version,
-            "has_input": isinstance(input_data, Mapping),
-            "has_output": isinstance(output_data, Mapping),
-            "compiler_metadata": data.get("metadata"),
-        }
+    for base in _build_info_roots(root):
+        for path in sorted(base.glob("*.json")):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            solc = data.get("solcVersion")
+            long_version = data.get("solcLongVersion")
+            input_data = data.get("input")
+            output_data = data.get("output")
+            result[path.relative_to(root).as_posix()] = {
+                "solc_version": solc,
+                "solc_long_version": long_version,
+                "has_input": isinstance(input_data, Mapping),
+                "has_output": isinstance(output_data, Mapping),
+                "compiler_metadata": data.get("metadata"),
+            }
     return result
 
 
