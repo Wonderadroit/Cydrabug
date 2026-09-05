@@ -1,8 +1,9 @@
 """Fail-closed workspace boundary for blind historical evaluations.
 
-The workspace is an allowlist projection of a pinned checkout.  It never reads
+The workspace is an allowlist projection of a pinned checkout. It never reads
 historical reports and refuses to materialize anything outside the declared
-blind input set.
+blind input set. A pinned revision is insufficient when the checkout is dirty:
+local tracked or untracked changes could otherwise contaminate the blind input.
 """
 from __future__ import annotations
 
@@ -50,6 +51,16 @@ def _git_revision(root: Path) -> str:
     return result.stdout.strip()
 
 
+def _git_status(root: Path) -> str:
+    result = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=root, capture_output=True, text=True, check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("unable to establish clean checkout state")
+    return result.stdout
+
+
 def _allowed(path: PurePosixPath, spec: HistoricalBenchmarkSpec) -> bool:
     text = path.as_posix()
     return any(text == p or text.startswith(p.rstrip("/") + "/") for p in spec.allowed_paths)
@@ -69,13 +80,16 @@ def materialize_blind_workspace(
         raise RuntimeError(
             f"historical revision mismatch: expected {spec.revision}, got {actual}"
         )
+    if _git_status(source):
+        raise RuntimeError("historical checkout must be clean before blind materialization")
     if destination == source or source in destination.parents:
         raise ValueError("destination must not be inside the source checkout")
 
     if destination.exists():
         shutil.rmtree(destination)
-    destination.mkdir(parents=True)
+    destination.mkdir(parents=True, exist_ok=True)
 
+    excluded = {x.lower() for x in spec.excluded_names}
     selected: list[str] = []
     for relative in sorted(spec.allowed_paths):
         candidate = source / relative
@@ -84,9 +98,10 @@ def materialize_blind_workspace(
         items = [candidate] if candidate.is_file() else sorted(p for p in candidate.rglob("*") if p.is_file())
         for item in items:
             rel = item.relative_to(source).as_posix()
-            if not _allowed(PurePosixPath(rel), spec):
+            rel_path = PurePosixPath(rel)
+            if not _allowed(rel_path, spec):
                 raise RuntimeError(f"input escaped allowlist: {rel}")
-            if any(part.lower() in {x.lower() for x in spec.excluded_names} for part in PurePosixPath(rel).parts):
+            if any(part.lower() in excluded for part in rel_path.parts):
                 raise RuntimeError(f"oracle-like input is forbidden: {rel}")
             target = destination / rel
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -96,6 +111,7 @@ def materialize_blind_workspace(
     digest = hashlib.sha256()
     for rel in sorted(selected):
         data = (destination / rel).read_bytes()
-        digest.update(rel.encode("utf-8")); digest.update(b"\0")
+        digest.update(rel.encode("utf-8"))
+        digest.update(b"\0")
         digest.update(hashlib.sha256(data).digest())
     return BlindWorkspace(str(destination), actual, digest.hexdigest(), tuple(sorted(selected)))
