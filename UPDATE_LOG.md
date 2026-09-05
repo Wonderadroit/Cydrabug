@@ -1,5 +1,24 @@
 # CYDRA UPDATE LOG
 
+## 2026-09-05 — regression-boundary-repair
+
+### Change
+Repaired three regression mismatches exposed by the first full local test run after the ENS build-identity boundary.
+
+### Repairs
+- Updated the execution-observation regression to expect the stronger trusted-result mutation rejection. A trusted receipt that is modified after gateway trust is established must fail at the trust boundary before semantic observation-field validation.
+- Corrected the Foundry reasoning fixture to use an evidence-backed `transition_expression` relationship, which is the current candidate-discovery input. A raw `writes` edge is not itself sufficient to manufacture an invariant candidate.
+- Corrected Immunefi known-issue extraction so the parser binds the known-issue record to the acquired authoritative page that actually contains the known-issue material, preferring `resources/` when present, then `scope/`, then `information/`.
+
+### Validation status
+The first local run at the synchronized `96b9833` state reported 94 passed and 3 failed. These repairs address those three failures. The repaired branch has not yet been locally rerun, so the suite is **not claimed green** until the user runtime verifies it.
+
+### Safety semantics
+No verification boundary was weakened. Trusted-result immutability remains authoritative, candidate discovery remains conservative, and known-issue provenance now points to the actual acquired source resource instead of silently attributing evidence to the primary information page.
+
+### Next boundary
+Pull the repaired commits into the user Linux checkout, run the complete test suite, and only after a green result resume the ENS snapshot acquisition/build-identity workflow.
+
 ## 2026-09-05 — ens-build-identity-evidence
 
 ### Change
