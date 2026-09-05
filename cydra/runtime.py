@@ -67,6 +67,24 @@ def _is_ubuntu(release: str) -> bool:
     return any(line.strip() in {"id=ubuntu", 'id="ubuntu"'} for line in release.splitlines())
 
 
+def _detect_proot() -> tuple[bool, str | None]:
+    """Detect PRoot from either the launcher binary or its guest kernel marker."""
+    proot_ok, proot_version = _run(("proot", "--version"))
+    if proot_ok:
+        return True, proot_version
+    release = platform.release()
+    if "proot" in release.lower():
+        return True, release
+    return False, None
+
+
+def _detect_python() -> tuple[bool, str | None]:
+    python_ok, python_version = _run(("python", "--version"))
+    if python_ok:
+        return python_ok, python_version
+    return _run(("python3", "--version"))
+
+
 def detect_runtime(*, require_proot: bool = True) -> RuntimeReport:
     """Inspect the supported Linux runtime without changing the host.
 
@@ -79,9 +97,9 @@ def detect_runtime(*, require_proot: bool = True) -> RuntimeReport:
     architecture = platform.machine().lower()
     release = _os_release()
     ubuntu = _is_ubuntu(release)
-    proot_ok, proot_version = _run(("proot", "--version"))
+    proot_ok, proot_version = _detect_proot()
     userspace_linux = ubuntu or (kernel_system == "linux" and bool(release))
-    python_ok, python_version = _run(("python", "--version"))
+    python_ok, python_version = _detect_python()
     git_ok, git_version = _run(("git", "--version"))
 
     capabilities = (
