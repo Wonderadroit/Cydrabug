@@ -1,5 +1,32 @@
 # CYDRA UPDATE LOG
 
+## 2026-09-05 — ens-build-identity-evidence
+
+### Change
+Closed the next M3 evidence sub-boundary by recording the build-relevant metadata actually observed in the public ENS contest snapshot, without claiming that a build has been executed or that the snapshot is cryptographically identical to the published audited Git object.
+
+### Evidence
+- The public contest snapshot at `cda79acaad59711b943fc68207ebb3f1d0ff8596` contains `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, and `.npmrc`.
+- `package.json` declares `packageManager: pnpm@10.27.0` and the repo-wide `test:all` / scoped build and typecheck scripts.
+- `pnpm-workspace.yaml` declares the workspace layout and package-resolution policy.
+- `pnpm-lock.yaml` is present with lockfile version `9.0`.
+- `.npmrc` declares `auto-install-peers=false` and `resolution-mode=highest`.
+- Immunefi's current official resources page requires Node v22, pnpm v10, `pnpm install --frozen-lockfile`, and publishes audited revision `63772fd872af472ced58b009499355f3430c2a86`.
+
+### Implementation
+Added `cydra/ens_build_identity.py` with immutable evidence for the snapshot commit, declared origin, Node requirement, exact pnpm package-manager version, and observed blob SHAs for the build-defining root files.
+
+Added `tests/test_ens_build_identity.py` covering preservation of the observed metadata and the fail-closed `BUILD_IDENTITY_UNRESOLVED` state.
+
+### Safety semantics
+The manifest is evidence about the declared contest snapshot and its build inputs. It does not assert successful dependency installation, a clean build, runtime compatibility, exact audited Git identity, or authorization to execute tests. `build_verified` therefore remains false until a clean, reproducible build is actually executed and its receipt is independently bound to this snapshot evidence.
+
+### Validation status
+The source files were written directly to `live-immunefi-work` as commits `6c33ccb8dc42bfc9a5914d633756c7fbe345dc2a` and `39d1c78c658b7ee70f338f083fd518d73395a82b`. GitHub Actions has not been verified for these commits, so CI is **not claimed green**.
+
+### Next boundary
+Acquire the complete snapshot into the user-controlled authorized runtime, verify the recorded file hashes against the checkout, run the official Node/pnpm setup with `pnpm install --frozen-lockfile`, capture the exact toolchain and clean-worktree identity, and establish a reproducible build receipt before projecting the source into the canonical SystemModel.
+
 ## 2026-09-05 — ens-snapshot-lineage-resolution
 
 ### Change
