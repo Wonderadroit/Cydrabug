@@ -1,5 +1,24 @@
 # CYDRA UPDATE LOG
 
+## 2026-09-05 — ens-target-correction-and-intake-hardening
+
+### Change
+Corrected the experiment identity boundary to use the canonical ENS live-contest repository and audited revision from `cydra/ens_target.py` instead of the stale Vaults target.
+
+### Hardened
+- `cydra/experiment.py` now imports `DEFAULT_REPOSITORY` and `AUDITED_REVISION` from the canonical ENS target binding, preventing target drift between planning and the live contest.
+- `cydra/program_intake.py` now binds the program-published known-issues record to the acquired authoritative program resource rather than constructing an unacquired resource identity.
+- Added regression coverage for the corrected experiment target and known-issue provenance.
+
+### Live status
+The current official Immunefi listing identifies the ENS Audit Competition as live with a $70,000 total reward pool and an end date of 14 September 2026. The official resources page specifies audited revision `63772fd872af472ced58b009499355f3430c2a86`, Node v22, pnpm v10, and `pnpm install --frozen-lockfile`.
+
+### Validation status
+The changes were written directly to `live-immunefi-work`. GitHub Actions execution has not been verified for this commit, so CI is **not claimed green**.
+
+### Next boundary
+Acquire/verify the exact ENS repository at the published audited revision, establish reproducible build identity, then feed the accepted source representation into the existing SystemModel/evidence pipeline. Do not begin active testing until the live program contract and source identity are both resolved.
+
 ## 2026-09-04 — v2.0.0-live-contest
 
 Established the live-contest development edition of CYDRA in `Wonderadroit/cydrabug` with the ENS Audit Competition as the first live integration target.
