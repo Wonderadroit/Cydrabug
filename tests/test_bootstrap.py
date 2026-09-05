@@ -3,7 +3,7 @@ from pathlib import Path
 from cydra.bootstrap import build_plan
 
 
-def test_build_plan_uses_actual_shared_home_path_for_repo_under_home(tmp_path, monkeypatch):
+def test_build_plan_preserves_guest_home_and_binds_repo_explicitly(tmp_path, monkeypatch):
     home = tmp_path / "home"
     repo = home / "cydra-bridge" / "workspace" / "cydrabug"
     repo.mkdir(parents=True)
@@ -11,10 +11,10 @@ def test_build_plan_uses_actual_shared_home_path_for_repo_under_home(tmp_path, m
 
     plan = build_plan(repo, container="ubuntu")
 
-    assert plan.shared_home
-    assert plan.guest_repository == repo.resolve().as_posix()
-    assert plan.command[:5] == ("proot-distro", "login", "ubuntu", "--shared-home", "--work-dir")
-    assert plan.command[-3:-2] == ("bash",)
+    assert not plan.shared_home
+    assert plan.guest_repository == "/workspace/cydrabug"
+    assert plan.command[:5] == ("proot-distro", "login", "ubuntu", "--bind", f"{repo.resolve()}:/workspace/cydrabug")
+    assert plan.command[-3] == "bash"
     assert plan.command[-2] == "-lc"
     assert plan.command[-1].endswith("exec python3 -m cydra.doctor")
     assert ". \"$HOME/.nvm/nvm.sh\"" in plan.command[-1]
@@ -50,7 +50,7 @@ def test_build_plan_preserves_explicit_target_argument(tmp_path, monkeypatch):
     command = ("python3", "-m", "cydra.doctor", "--target", target.resolve().as_posix())
     plan = build_plan(repo, container="ubuntu", command=command)
 
-    assert plan.guest_repository == repo.resolve().as_posix()
+    assert plan.guest_repository == "/workspace/cydrabug"
     assert plan.command[-1].endswith(
         f"exec python3 -m cydra.doctor --target {target.resolve().as_posix()}"
     )
