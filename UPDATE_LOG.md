@@ -1,5 +1,28 @@
 # CYDRA UPDATE LOG
 
+## 2026-09-05 — typescript-source-provider
+
+### Change
+Connected the language-neutral source observation boundary to a real TypeScript compiler-backed provider for the ENS live-contest exercise.
+
+### Boundary
+`TypeScript compiler API → SourceObservation → canonical SystemModel`
+
+### Implementation
+- Added `cydra/typescript_observer.cjs` as a small compiler-API observer using the target project's installed `typescript` package.
+- Updated `cydra/typescript_provider.py` to pass acquired source text to the observer, normalize compiler observations, preserve source SHA-256 provenance, preserve scope state, and record compiler version/tool identity.
+- The provider fails closed when the TypeScript compiler capability is unavailable or the observer returns malformed output.
+- Added regression tests for compiler strength, tool/version metadata, source provenance, scope preservation, and unavailable-compiler behavior.
+
+### Safety semantics
+The adapter emits structural facts only. It does not infer authorization, vulnerabilities, security properties, or scope from names or lexical patterns. Missing compiler capability is an explicit provider failure rather than a downgrade to an untrusted semantic claim.
+
+### Live-contest exercise
+ENS TypeScript/TSX source is the first non-Python implementation exercising the same normalized observation contract. This validates the thesis that CYDRA needs one source-understanding interface, not one universal parser.
+
+### Validation status
+GitHub-side regression tests are committed. The provider still requires execution in the user's PRoot target environment with the acquired ENS dependency tree before any runtime capability claim is made. ENS exact audited-source identity remains unresolved; this change does not authorize active vulnerability investigation.
+
 ## 2026-09-05 — language-neutral-source-observation-boundary
 
 ### Change
