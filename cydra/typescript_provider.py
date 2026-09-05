@@ -1,9 +1,4 @@
-"""Compiler-backed TypeScript source observations for CYDRA.
-
-The adapter delegates syntax understanding to the target project's installed
-TypeScript compiler API. It emits structural observations only and never
-infers security conclusions from names or text patterns.
-"""
+"""Compiler-backed TypeScript source observations for CYDRA."""
 from __future__ import annotations
 
 import hashlib
@@ -52,7 +47,12 @@ class TypeScriptCompilerProvider:
             check=False,
         )
         if completed.returncode == 42:
-            raise SourceProviderUnavailable(completed.stderr.strip())
+            raise SourceProviderUnavailable(
+                "target TypeScript Compiler API is unavailable; "
+                "@typescript/native-preview/tsgo is not silently substituted "
+                "because its native API is a separate, still-evolving capability"
+                f": {completed.stderr.strip()}"
+            )
         if completed.returncode != 0:
             raise SourceProviderUnavailable(
                 f"TypeScript observer failed with exit code {completed.returncode}: {completed.stderr.strip()}"
