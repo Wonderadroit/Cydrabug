@@ -53,13 +53,19 @@ def test_foundry_reasoning_does_not_promote_candidates_to_verified_invariants(mo
 
     def project(target_model, build):
         target_model.add_edge(Edge(
-            "function:Vault:ast:10", "writes", "state_variable:Vault:ast:20",
+            "function:Vault:ast:10",
+            "transition_expression",
+            "state_variable:Vault:ast:20",
             {
                 "evidence_backed": True,
                 "candidate": True,
                 "provenance": "solc-json-ast:contracts/Vault.sol",
                 "confidence": 0.9,
                 "ast_node_id": 30,
+                "expression": "balance + amount",
+                "operation": "+=",
+                "rhs_expression": "amount",
+                "dependency_ids": [],
             },
         ))
         return list(target_model.edges)
