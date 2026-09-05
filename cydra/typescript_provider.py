@@ -8,7 +8,12 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Callable
 
-from .source_provider import ObservationStrength, SourceObservation, SourceObservationKind
+from .source_provider import (
+    ObservationStrength,
+    SourceObservation,
+    SourceObservationKind,
+    SourceRelationship,
+)
 
 
 class SourceProviderUnavailable(RuntimeError):
@@ -63,9 +68,19 @@ class TypeScriptCompilerProvider:
             raise SourceProviderUnavailable("TypeScript observer returned invalid JSON") from error
 
         version = str(payload.get("compiler_version", "unknown"))
+        supplied_paths = {str(Path(item["path"]).as_posix()): item["path"] for item in files}
+        absolute_to_relative = {
+            str((self.target_root / item["path"]).resolve()): item["path"] for item in files
+        }
+        file_observation_ids = {
+            path: f"file:{path}:1:{path}" for path in supplied_paths.values()
+        }
+
         observations: list[SourceObservation] = []
         for item in payload.get("observations", []):
-            path = str(item["path"])
+            raw_path = str(item["path"])
+            absolute_path = str(Path(raw_path).resolve())
+            path = absolute_to_relative.get(absolute_path, raw_path)
             if path not in sources:
                 continue
             kind = _KIND_MAP.get(str(item["kind"]))
@@ -75,6 +90,17 @@ class TypeScriptCompilerProvider:
             name = str(item["name"])
             attributes = dict(item.get("attributes", {}))
             attributes["line"] = line
+            relationships: tuple[SourceRelationship, ...] = ()
+
+            resolved = attributes.get("resolved_path")
+            if kind in {SourceObservationKind.IMPORT, SourceObservationKind.EXPORT} and resolved:
+                resolved_path = str(Path(str(resolved)).resolve())
+                target_path = absolute_to_relative.get(resolved_path)
+                if target_path is not None:
+                    relationships = (SourceRelationship("imports" if kind is SourceObservationKind.IMPORT else "reexports", file_observation_ids[target_path]),)
+                else:
+                    attributes["resolution_status"] = "RESOLVED_EXTERNAL"
+
             source_hash = hashlib.sha256(sources[path].encode("utf-8")).hexdigest()
             observations.append(SourceObservation(
                 observation_id=f"{kind.value}:{path}:{line}:{name}",
@@ -88,5 +114,7 @@ class TypeScriptCompilerProvider:
                 strength=ObservationStrength.COMPILER,
                 provenance=(f"sha256:{source_hash}", f"target-root:{self.target_root}"),
                 scope_state=self.scope_resolver(path),
+                relationships=relationships,
             ))
+
         return tuple(observations)
