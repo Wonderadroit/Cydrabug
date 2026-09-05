@@ -173,7 +173,6 @@ __all__ = [
     "AUDITED_REVISION",
     "CANONICAL_COMMANDS",
     "DEFAULT_REVISION",
-    "DEFAULT_REVISION",
     "ENS_PNPM_VERSION",
     "ENSBuildRun",
     "CommandObservation",
