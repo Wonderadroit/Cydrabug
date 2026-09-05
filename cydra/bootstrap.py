@@ -18,6 +18,7 @@ from typing import Sequence
 
 DEFAULT_CONTAINER = "ubuntu"
 GUEST_WORKSPACE = "/workspace/cydrabug"
+GUEST_TARGET = "/workspace/target"
 BASE_PACKAGES = ("python3", "python3-venv", "git", "ca-certificates")
 
 
@@ -28,6 +29,9 @@ class BootstrapPlan:
     guest_repository: str
     shared_home: bool
     command: tuple[str, ...]
+    target: Path | None = None
+    guest_target: str | None = None
+    binds: tuple[tuple[Path, str], ...] = ()
 
 
 def _require_executable(name: str) -> str:
@@ -82,26 +86,51 @@ def build_plan(
     *,
     container: str = DEFAULT_CONTAINER,
     command: Sequence[str] = ("python3", "-m", "cydra.doctor"),
+    target: str | os.PathLike[str] | None = None,
 ) -> BootstrapPlan:
-    """Build a deterministic host-side PRoot launch plan without executing it.
+    """Build a deterministic PRoot launch plan while preserving guest /root.
 
-    The CYDRA checkout is bound explicitly rather than using --shared-home.
-    Sharing the host home over /root can mask the guest's own /root/.nvm tree,
-    which is part of the guest runtime. A targeted bind preserves the guest
-    runtime/toolchain while still exposing the CYDRA checkout.
+    The CYDRA checkout and optional target checkout are explicitly bound into a
+    guest workspace. We deliberately do not use --shared-home: that mode can
+    mask the Ubuntu guest's /root/.nvm tree and therefore change the runtime
+    toolchain seen by CYDRA.
     """
     repo = Path(repository).expanduser().resolve()
     if not repo.is_dir():
         raise ValueError(f"repository directory does not exist: {repo}")
 
-    guest_repository = GUEST_WORKSPACE
-    bind = f"{repo}:{guest_repository}"
-    initialized_command = _initialized_guest_command(command)
-    launch = (
-        "proot-distro", "login", container, "--bind", bind,
-        "--work-dir", guest_repository, "--", *initialized_command,
+    target_path: Path | None = None
+    guest_target: str | None = None
+    binds: list[tuple[Path, str]] = [(repo, GUEST_WORKSPACE)]
+    normalized_command = tuple(command)
+
+    if target is not None:
+        target_path = Path(target).expanduser().resolve()
+        if not target_path.is_dir():
+            raise ValueError(f"target directory does not exist: {target_path}")
+        guest_target = GUEST_TARGET
+        normalized_command = tuple(
+            guest_target if value == target_path.as_posix() else value
+            for value in normalized_command
+        )
+        binds.append((target_path, guest_target))
+
+    initialized_command = _initialized_guest_command(normalized_command)
+    launch: list[str] = ["proot-distro", "login", container]
+    for source, destination in binds:
+        launch.extend(("--bind", f"{source}:{destination}"))
+    launch.extend(("--work-dir", GUEST_WORKSPACE, "--", *initialized_command))
+
+    return BootstrapPlan(
+        container,
+        repo,
+        GUEST_WORKSPACE,
+        False,
+        tuple(launch),
+        target_path,
+        guest_target,
+        tuple(binds),
     )
-    return BootstrapPlan(container, repo, guest_repository, False, launch)
 
 
 def verify_host(container: str = DEFAULT_CONTAINER) -> tuple[bool, str]:
@@ -154,25 +183,36 @@ def main(argv: list[str] | None = None) -> int:
     if not ok:
         return 2
 
+    target_path: Path | None = None
+    if args.target:
+        target_path = Path(args.target).expanduser().resolve()
+        if not target_path.is_dir():
+            raise ValueError(f"target directory does not exist: {target_path}")
+
     if args.shell:
         command = ("bash",)
     elif args.doctor:
         command = ("python3", "-m", "cydra.doctor")
-        if args.target:
-            target = Path(args.target).expanduser().resolve()
-            if not target.is_dir():
-                raise ValueError(f"target directory does not exist: {target}")
-            command += ("--target", target.as_posix())
+        if target_path is not None:
+            command += ("--target", target_path.as_posix())
         if args.target_profile:
             command += ("--target-profile", args.target_profile)
     else:
         command = ("python3", "-m", "cydra.doctor")
 
-    plan = build_plan(args.repository, container=args.container, command=command)
+    plan = build_plan(
+        args.repository,
+        container=args.container,
+        command=command,
+        target=target_path,
+    )
     if args.status:
         print(f"repository: {plan.repository}")
         print(f"guest repository: {plan.guest_repository}")
         print(f"shared home: {plan.shared_home}")
+        if plan.target is not None:
+            print(f"target: {plan.target}")
+            print(f"guest target: {plan.guest_target}")
         print("launch:", " ".join(plan.command))
         return 0
     return run_plan(plan)
