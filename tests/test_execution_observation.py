@@ -3,13 +3,15 @@ import pytest
 from cydra.execution_observation import (
     execution_evidence_from_trusted_variant,
     variant_observation_from_trusted_result,
+    verify_violation_hypothesis_from_trusted_results,
 )
 from cydra.execution_request import ExecutionRequest
 from cydra.external_execution import ExternalExecutionGateway
+from cydra.hypothesis import Hypothesis, HypothesisState
 
 
 class Result:
-    def __init__(self, request, *, outcome="INVARIANT_VIOLATED"):
+    def __init__(self, request, *, outcome="INVARIANT_VIOLATED", variant_id="boundary", evidence_id="exec-evidence:1"):
         self.execution_id = request.execution_id
         self.request_digest = request.digest
         self.outcome = outcome
@@ -18,8 +20,8 @@ class Result:
             "request_digest": request.digest,
             "adapter": request.adapter,
             "outcome": outcome,
-            "variant_id": "boundary",
-            "evidence_id": "exec-evidence:1",
+            "variant_id": variant_id,
+            "evidence_id": evidence_id,
             "verification_outcome": outcome,
             "mechanism_fingerprint": "mechanism:1",
             "verification_confidence": 0.8,
@@ -35,10 +37,17 @@ class Adapter:
 
     def execute(self, *, request, authorization, gateway_capability):
         assert gateway_capability is self.capability
-        return Result(request)
+        variant = "boundary" if request.execution_id == "exec-1" else "adversarial"
+        evidence_id = f"exec-evidence:{request.execution_id}"
+        return Result(request, variant_id=variant, evidence_id=evidence_id)
 
     def rehydrate_result(self, *, payload, request):
-        result = Result(request, outcome=payload["outcome"])
+        result = Result(
+            request,
+            outcome=payload["outcome"],
+            variant_id=payload["variant_id"],
+            evidence_id=payload["evidence_id"],
+        )
         result._payload = dict(payload)
         return result
 
@@ -49,7 +58,7 @@ class Authorization:
     authorized = True
 
 
-def make_gateway_and_request():
+def make_gateway_and_request(execution_id="exec-1"):
     stored = []
     gateway = ExternalExecutionGateway(
         persist_request=lambda request: None,
@@ -59,7 +68,7 @@ def make_gateway_and_request():
     adapter = Adapter()
     gateway.register("experiment", adapter)
     request = ExecutionRequest(
-        execution_id="exec-1",
+        execution_id=execution_id,
         adapter="experiment",
         target="/authorized/target",
         command=("experiment",),
@@ -76,7 +85,7 @@ def test_only_gateway_produced_result_can_become_variant_observation():
     observation = variant_observation_from_trusted_result(gateway, request, result)
 
     assert observation.variant_id == "boundary"
-    assert observation.evidence_id == "exec-evidence:1"
+    assert observation.evidence_id == "exec-evidence:exec-1"
     assert observation.outcome == "INVARIANT_VIOLATED"
     assert observation.mechanism_fingerprint == "mechanism:1"
     assert observation.confidence == 0.8
@@ -113,7 +122,7 @@ def test_variant_evidence_uses_the_same_trusted_receipt_and_derives_polarity():
 
     evidence = execution_evidence_from_trusted_variant(gateway, request, result)
 
-    assert evidence.evidence_id == "exec-evidence:1"
+    assert evidence.evidence_id == "exec-evidence:exec-1"
     assert evidence.execution_id == request.execution_id
     assert evidence.request_digest == request.digest
     assert evidence.polarity == "supports"
@@ -130,3 +139,47 @@ def test_mutating_a_trusted_result_invalidates_both_observation_and_evidence():
         variant_observation_from_trusted_result(gateway, request, result)
     with pytest.raises(ValueError, match="mutated after trust was established"):
         execution_evidence_from_trusted_variant(gateway, request, result)
+
+
+def test_two_trusted_variants_drive_verification_then_update_only_the_violation_hypothesis():
+    gateway, request_one = make_gateway_and_request("exec-1")
+    result_one = gateway.execute("experiment", request_one, authorization=Authorization())
+    request_two = ExecutionRequest(
+        execution_id="exec-2",
+        adapter="experiment",
+        target="/authorized/target",
+        command=("experiment",),
+        project_fingerprint="project-1",
+        authorization_id="auth-1",
+    )
+    result_two = gateway.execute("experiment", request_two, authorization=Authorization())
+    candidate_id = "candidate:Vault:transition:balance:30"
+    hypothesis = Hypothesis(
+        f"hypothesis:invariant-violated:{candidate_id}",
+        "Invariant violated: execution updates balance using balance + amount",
+        belief=0.5,
+    )
+
+    updated, event = verify_violation_hypothesis_from_trusted_results(
+        gateway, candidate_id, hypothesis, [(request_one, result_one), (request_two, result_two)]
+    )
+
+    assert updated.state is HypothesisState.SUPPORTED
+    assert updated.belief > hypothesis.belief
+    assert updated.applied_evidence_ids == ("exec-evidence:exec-1", "exec-evidence:exec-2")
+    assert event.evidence_ids == updated.applied_evidence_ids
+
+
+def test_terminal_violation_hypothesis_cannot_be_updated_again():
+    gateway, request = make_gateway_and_request()
+    result = gateway.execute("experiment", request, authorization=Authorization())
+    candidate_id = "candidate:Vault:transition:balance:30"
+    hypothesis = Hypothesis(
+        f"hypothesis:invariant-violated:{candidate_id}",
+        "Invariant violated: execution updates balance using balance + amount",
+        belief=0.7,
+        state=HypothesisState.SUPPORTED,
+    )
+
+    with pytest.raises(ValueError, match="terminal hypothesis state"):
+        verify_violation_hypothesis_from_trusted_results(gateway, candidate_id, hypothesis, [(request, result)])
