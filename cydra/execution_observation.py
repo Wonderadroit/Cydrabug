@@ -6,12 +6,13 @@ objects and untrusted result instances are deliberately rejected.
 """
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 
 from .execution_evidence import ExecutionEvidence, _fingerprint
 from .external_execution import ExternalExecutionGateway, ExternalExecutionResult
 from .execution_request import ExecutionRequest
-from .verification import VariantObservation
+from .hypothesis import BeliefUpdate, Hypothesis, HypothesisState, update_hypothesis
+from .verification import VariantObservation, verify_candidate_from_variants
 
 _ALLOWED_OUTCOMES = frozenset({"INVARIANT_VIOLATED", "INVARIANT_PRESERVED", "INCONCLUSIVE"})
 
@@ -33,12 +34,7 @@ def variant_observation_from_trusted_result(
     request: ExecutionRequest,
     result: ExternalExecutionResult,
 ) -> VariantObservation:
-    """Build a VariantObservation only from a gateway-trusted, self-bound result.
-
-    Variant identity, evidence identity, outcome, mechanism fingerprint, and
-    confidence are read from the durable result. No verification classification
-    is accepted as a separate caller argument.
-    """
+    """Build a VariantObservation only from a gateway-trusted, self-bound result."""
     if not isinstance(gateway, ExternalExecutionGateway):
         raise TypeError("gateway must be an ExternalExecutionGateway")
     if not isinstance(request, ExecutionRequest):
@@ -71,12 +67,7 @@ def execution_evidence_from_trusted_variant(
     request: ExecutionRequest,
     result: ExternalExecutionResult,
 ) -> ExecutionEvidence:
-    """Create canonical evidence from the same trusted receipt as a variant observation.
-
-    The evidence fingerprint covers the complete canonical result payload, so a
-    later observation cannot silently refer to a different receipt. Polarity is
-    derived from the trusted verification outcome rather than caller input.
-    """
+    """Create canonical evidence from the same trusted receipt as a variant observation."""
     gateway.require_trusted_result(result)
     observation = variant_observation_from_trusted_result(gateway, request, result)
     payload = dict(result.canonical_payload())
@@ -98,3 +89,32 @@ def execution_evidence_from_trusted_variant(
         polarity=polarity,
         confidence=observation.confidence,
     )
+
+
+def verify_violation_hypothesis_from_trusted_results(
+    gateway: ExternalExecutionGateway,
+    candidate_id: str,
+    hypothesis: Hypothesis,
+    executions: Iterable[tuple[ExecutionRequest, ExternalExecutionResult]],
+) -> tuple[Hypothesis, BeliefUpdate]:
+    """Verify and update an invariant-violation hypothesis from trusted executions.
+
+    The execution receipts are the sole source of verification classification.
+    This function only composes the existing variant verifier and hypothesis
+    updater; it does not execute anything, alter prior belief, or infer truth
+    from discovery confidence.
+    """
+    if not candidate_id.strip():
+        raise ValueError("candidate_id must not be empty")
+    expected_id = f"hypothesis:invariant-violated:{candidate_id}"
+    if hypothesis.hypothesis_id != expected_id:
+        raise ValueError("hypothesis is not the canonical invariant-violation hypothesis for this candidate")
+    if hypothesis.state in {HypothesisState.SUPPORTED, HypothesisState.CONTRADICTED}:
+        raise ValueError("terminal hypothesis state cannot be updated with new verification evidence")
+
+    observations = tuple(
+        variant_observation_from_trusted_result(gateway, request, result)
+        for request, result in executions
+    )
+    verification, evidence = verify_candidate_from_variants(candidate_id, observations)
+    return update_hypothesis(hypothesis, verification, evidence)
