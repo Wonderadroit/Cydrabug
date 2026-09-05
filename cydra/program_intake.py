@@ -115,7 +115,8 @@ def parse_immunefi_program(*,locator,pages):
     text=re.sub(r"<[^>]+>"," "," ".join(p.content for p in pages)); assertions=[]
     if re.search(r"PoC|proof of concept",text,re.I):assertions.append(ProgramAssertion("assertion:poc","poc_requirement","Program requires a proof of concept",primary.resource_id,AuthorityClass.AUTHORITATIVE))
     if re.search(r"known issues?.*not eligible|previously.*not eligible",text,re.I):assertions.append(ProgramAssertion("assertion:known-issues","known_issue_policy","Known issues/duplicates are not eligible",primary.resource_id,AuthorityClass.AUTHORITATIVE))
-    return build_program_contract(program_id=slug,display_name=slug,primary_locator=primary.locator,resources=rs,assertions=assertions,known_issues=extract_known_issues(acquired=info),intake_context="Immunefi authoritative program pages")
+    known_issue_source = resources or scope or info
+    return build_program_contract(program_id=slug,display_name=slug,primary_locator=primary.locator,resources=rs,assertions=assertions,known_issues=extract_known_issues(acquired=known_issue_source),intake_context="Immunefi authoritative program pages")
 class DocumentFetcher(Protocol):
     def fetch(self,locator):...
 class ImmunefiAcquisitionAdapter:
