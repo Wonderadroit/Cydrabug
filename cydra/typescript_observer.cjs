@@ -1,16 +1,21 @@
 "use strict";
 
 const fs = require("fs");
+const path = require("path");
+const Module = require("module");
+
+const input = JSON.parse(fs.readFileSync(0, "utf8"));
+const targetRoot = path.resolve(input.target_root || process.cwd());
 
 let ts;
 try {
-  ts = require("typescript");
+  const targetRequire = Module.createRequire(path.join(targetRoot, "package.json"));
+  ts = targetRequire("typescript");
 } catch (error) {
-  process.stderr.write(`typescript compiler API unavailable: ${error.message}\n`);
+  process.stderr.write(`typescript compiler API unavailable from target: ${error.message}\n`);
   process.exit(42);
 }
 
-const input = JSON.parse(fs.readFileSync(0, "utf8"));
 const result = [];
 
 function hasExport(node) {
