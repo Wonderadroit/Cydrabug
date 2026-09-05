@@ -42,8 +42,8 @@ class ExternalExecutionGateway:
     # strong adapter reference prevents id reuse from reopening a binding.
     _GLOBAL_ADAPTER_GATEWAYS={}
 
-    def __init__(self,persist_request:Callable[[ExecutionRequest],object]|None=None,set_execution_state:Callable[[ExecutionRequest,str],object]|None=None,get_execution_state:Callable[[ExecutionRequest],str|None]|None=None,persist_result:Callable[[ExecutionRequest,ExternalExecutionResult],object]|None=None):
-        self._adapters={}; self._persist_request=persist_request; self._set_execution_state=set_execution_state; self._get_execution_state=get_execution_state; self._persist_result=persist_result; self._executed_digests=set(); self._local_states={}; self._execution_capabilities={}
+    def __init__(self,persist_request:Callable[[ExecutionRequest],object]|None=None,set_execution_state:Callable[[ExecutionRequest,str],object]|None=None,get_execution_state:Callable[[ExecutionRequest],str|None]|None=None,persist_result:Callable[[ExecutionRequest,ExternalExecutionResult],object]|None=None,get_result:Callable[[ExecutionRequest],ExternalExecutionResult|None]|None=None):
+        self._adapters={}; self._persist_request=persist_request; self._set_execution_state=set_execution_state; self._get_execution_state=get_execution_state; self._persist_result=persist_result; self._get_result=get_result; self._executed_digests=set(); self._local_states={}; self._execution_capabilities={}; self._trusted_results=[]
     def register(self,name,adapter):
         if not isinstance(name,str) or not name.strip(): raise ValueError("adapter name must not be empty")
         if name in self._adapters: raise ValueError(f"external adapter is already registered: {name}")
@@ -97,18 +97,27 @@ class ExternalExecutionGateway:
             self._persist_result(request,result); self._state(request,"RESULT_RECORDED"); self._state(request,"COMPLETED")
         except Exception as exc:
             self._mark_unrecorded(request); raise RuntimeError("external execution succeeded but durable result/completion recording failed") from exc
-        self._executed_digests.add(request.digest); return result
+        self._executed_digests.add(request.digest); self._trusted_results.append(result); return result
     def rehydrate_result(self,name,request,payload):
         current=self._current_state(request)
         if current not in {"RESULT_RECORDED","COMPLETED","OUTCOME_UNRECORDED"}: raise RuntimeError(f"result rehydration requires a recorded external result, found {current or 'ABSENT'}")
         result=self.adapter(name).rehydrate_result(payload=payload,request=request); validate_result_binding(result,request)
         if dict(result.canonical_payload())!=dict(payload): raise ValueError("rehydrated result does not exactly match the durable receipt payload")
+        self._trusted_results.append(result)
+        return result
+    def require_trusted_result(self, result):
+        if not any(candidate is result for candidate in self._trusted_results):
+            raise ValueError("external execution result was not produced or rehydrated by this gateway")
         return result
     def reconcile_result(self,request,result,*,terminal_state="COMPLETED"):
         if terminal_state not in {"COMPLETED","FAILED"}: raise ValueError("reconciliation requires terminal_state COMPLETED or FAILED")
         validate_result_binding(result,request)
         if self._current_state(request) not in {"OUTCOME_UNRECORDED","RESULT_RECORDED"}: raise RuntimeError("execution reconciliation requires OUTCOME_UNRECORDED or RESULT_RECORDED state")
         if self._persist_result is None: raise RuntimeError("execution reconciliation requires durable result persistence")
-        self._persist_result(request,result); self._state(request,terminal_state); self._executed_digests.add(request.digest)
+        if self._get_result is None: raise RuntimeError("execution reconciliation requires an existing durable result")
+        durable = self._get_result(request)
+        if not isinstance(durable, ExternalExecutionResult) or dict(durable.canonical_payload()) != dict(result.canonical_payload()):
+            raise ValueError("reconciled result does not match the existing durable result")
+        self._persist_result(request,result); self._state(request,terminal_state); self._executed_digests.add(request.digest); self._trusted_results.append(result)
     @property
     def registered_adapters(self): return tuple(sorted(self._adapters))

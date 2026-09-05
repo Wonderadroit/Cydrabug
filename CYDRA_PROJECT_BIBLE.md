@@ -295,6 +295,22 @@ The best next action is the one that most reduces uncertainty while remaining au
 
 ---
 
+## 10.5 Variant-Based Real-World Validation
+
+A security observation is not a vulnerability merely because static reasoning identifies suspicious behavior. CYDRA validates important security hypotheses through independently meaningful variants of the relevant system state and execution conditions.
+
+Principle: **Do not trust one experiment. Vary the conditions that the SystemModel and hypothesis identify as causally relevant, then determine whether the predicted security behavior survives those variants.**
+
+A variant is a deliberate change to a relevant state, input, ordering, boundary condition, dependency, or execution condition. Variants must be justified by evidence-backed SystemModel relationships rather than generated as an arbitrary vulnerability checklist. Repeating identical conditions is useful for reproducibility, but is not independent variant validation.
+
+Supporting variants increase confidence in a causal explanation. Contradictory variants are valuable evidence: they must reduce or qualify confidence rather than be ignored.
+
+A security claim must distinguish: observation; hypothesis; invariant; variant prediction; observed variant behavior; causal explanation; reproduced invariant violation; and final claim. Variant results must retain provenance and remain attributable to the hypothesis and execution that produced them.
+
+Historical benchmarks may later evaluate whether frozen CYDRA reasoning survives comparison with known ground truth. Historical findings must not become an oracle during blind reasoning.
+
+---
+
 ## 11. External Execution and Durable Evidence
 
 Execution must have a strict lifecycle:

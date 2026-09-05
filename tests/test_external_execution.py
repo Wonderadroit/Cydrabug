@@ -69,3 +69,30 @@ def test_gateway_rejects_adapter_rebinding():
     a=Adapter(); first=ExternalExecutionGateway(); second=ExternalExecutionGateway(); first.register("fake",a)
     with pytest.raises(RuntimeError,match="different gateway"):
         second.register("fake",a)
+
+def test_reconciled_result_is_registered_as_trusted():
+    req = request()
+    states = {req.digest: "OUTCOME_UNRECORDED"}
+    durable = Result(req.execution_id, req.digest, "NO_COUNTEREXAMPLE")
+    g = ExternalExecutionGateway(
+        set_execution_state=lambda r, s: states.__setitem__(r.digest, s),
+        get_execution_state=lambda r: states.get(r.digest),
+        persist_result=lambda r, x: None,
+        get_result=lambda r: durable,
+    )
+    g.reconcile_result(req, durable)
+    assert g.require_trusted_result(durable) is durable
+
+def test_reconciliation_rejects_fabricated_result_without_matching_durable_record():
+    req = request()
+    states = {req.digest: "OUTCOME_UNRECORDED"}
+    durable = Result(req.execution_id, req.digest, "RECORDED")
+    fabricated = Result(req.execution_id, req.digest, "FABRICATED")
+    g = ExternalExecutionGateway(
+        set_execution_state=lambda r, s: states.__setitem__(r.digest, s),
+        get_execution_state=lambda r: states.get(r.digest),
+        persist_result=lambda r, x: None,
+        get_result=lambda r: durable,
+    )
+    with pytest.raises(ValueError, match="existing durable result"):
+        g.reconcile_result(req, fabricated)
