@@ -1,6 +1,6 @@
 import json
 
-from cydra.target_environment import discover_requirements, verify_requirements
+from cydra.target_environment import TargetRequirement, discover_requirements, verify_requirements
 
 
 def test_discover_requirements_reads_target_declarations(tmp_path):
@@ -40,6 +40,26 @@ def test_discover_requirements_reads_ci_toolchain_declarations(tmp_path):
     requirements = discover_requirements(tmp_path)
     assert any(r.name == "node" and r.version == "22" and r.source == ".github/workflows/ci.yml" for r in requirements)
     assert any(r.name == "pnpm" and r.version == "10.27.0" and r.source == ".github/workflows/ci.yml" for r in requirements)
+    assert all(not r.required for r in requirements if r.source == ".github/workflows/ci.yml")
+
+
+def test_ci_channel_declarations_are_informational(tmp_path, monkeypatch):
+    workflow = tmp_path / ".github" / "workflows"
+    workflow.mkdir(parents=True)
+    (workflow / "test.yml").write_text(
+        """jobs:\n  test:\n    uses: actions/setup-node@v4\n    with:\n      node-version: 'lts/*'\n    - uses: pnpm/action-setup@v4\n      with:\n        version: lts/*\n""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("cydra.target_environment.shutil.which", lambda executable: executable)
+    monkeypatch.setattr(
+        "cydra.target_environment.subprocess.run",
+        lambda *args, **kwargs: type("Result", (), {"returncode": 0, "stdout": "v18.19.1\n", "stderr": ""})(),
+    )
+    report = verify_requirements(tmp_path)
+    ci = [c for c in report.capabilities if c.requirement.source == ".github/workflows/test.yml"]
+    assert ci and all(not c.requirement.required for c in ci)
+    assert not report.ready_for("ci")
+    assert report.ready is True
 
 
 def test_verify_requirements_reports_missing_capability_without_installing(tmp_path, monkeypatch):
@@ -66,3 +86,18 @@ def test_version_constraints_are_not_treated_as_unconditional(monkeypatch, tmp_p
     report = verify_requirements(tmp_path)
     assert not report.ready
     assert "node" in report.missing_required
+
+
+def test_explicit_authoritative_requirements_can_override_ci_channel_declarations(monkeypatch, tmp_path):
+    monkeypatch.setattr("cydra.target_environment.shutil.which", lambda executable: executable)
+    monkeypatch.setattr(
+        "cydra.target_environment.subprocess.run",
+        lambda *args, **kwargs: type("Result", (), {"returncode": 0, "stdout": "v18.19.1\n", "stderr": ""})(),
+    )
+    requirements = (
+        TargetRequirement("node", "runtime", "22", "authoritative:contest", authority="AUTHORITATIVE"),
+        TargetRequirement("pnpm", "package-manager", "10.27.0", "authoritative:contest", authority="AUTHORITATIVE"),
+    )
+    report = verify_requirements(tmp_path, requirements)
+    assert not report.ready
+    assert set(report.missing_required) == {"node", "pnpm"}
