@@ -39,21 +39,38 @@ def test_build_plan_binds_repo_outside_home(tmp_path, monkeypatch):
     assert plan.command[-1].endswith("exec bash -lc pwd")
 
 
-def test_build_plan_preserves_explicit_target_argument(tmp_path, monkeypatch):
-    home = tmp_path / "home"
-    repo = home / "cydra-bridge" / "workspace" / "cydrabug"
-    target = home / "cydra-bridge" / "workspace" / "ens-audit-snapshot"
-    repo.mkdir(parents=True)
-    target.mkdir(parents=True)
-    monkeypatch.setattr("cydra.bootstrap.Path.home", lambda: home)
+def test_build_plan_maps_target_into_guest_workspace(tmp_path):
+    repo = tmp_path / "cydrabug"
+    target = tmp_path / "ens-audit-snapshot"
+    repo.mkdir()
+    target.mkdir()
 
     command = ("python3", "-m", "cydra.doctor", "--target", target.resolve().as_posix())
-    plan = build_plan(repo, container="ubuntu", command=command)
+    plan = build_plan(repo, container="ubuntu", command=command, target=target)
 
-    assert plan.guest_repository == "/workspace/cydrabug"
-    assert plan.command[-1].endswith(
-        f"exec python3 -m cydra.doctor --target {target.resolve().as_posix()}"
+    assert plan.target == target.resolve()
+    assert plan.guest_target == "/workspace/target"
+    assert plan.binds == (
+        (repo.resolve(), "/workspace/cydrabug"),
+        (target.resolve(), "/workspace/target"),
     )
+    assert plan.command[-1].endswith(
+        "exec python3 -m cydra.doctor --target /workspace/target"
+    )
+    assert f"{target.resolve()}:/workspace/target" in plan.command
+
+
+def test_build_plan_rejects_missing_target(tmp_path):
+    repo = tmp_path / "cydrabug"
+    repo.mkdir()
+    missing = tmp_path / "ens-audit-snapshot"
+
+    try:
+        build_plan(repo, target=missing)
+    except ValueError as exc:
+        assert "target directory does not exist" in str(exc)
+    else:
+        raise AssertionError("missing target should be rejected")
 
 
 def test_container_exists_uses_machine_readable_container_list(monkeypatch):
