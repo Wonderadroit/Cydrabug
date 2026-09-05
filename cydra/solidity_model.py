@@ -148,7 +148,14 @@ def load_bound_foundry_build_info(
     expected_revision: str,
     allowed_source_prefixes: tuple[str, ...] = ("src/",),
 ) -> tuple[SolidityBuildInfoSource, ...]:
-    """Accept compiler AST only when the exact target build and source are bound."""
+    """Accept compiler AST only when the exact target build and source are bound.
+
+    A compiler version omitted from the repository configuration remains
+    undeclared. It may nevertheless become observed build evidence when Foundry's
+    build-info records a non-empty compiler version consistently across accepted
+    artifacts. CYDRA never promotes a prose/editor/tooling convention into a
+    declared compiler configuration.
+    """
     root = Path(root).resolve()
     if build_identity.repository != expected_repository:
         raise RuntimeError("build repository identity mismatch")
@@ -165,11 +172,6 @@ def load_bound_foundry_build_info(
         raise RuntimeError("compiler AST requires a clean checkout")
     if build_result.config_fingerprint != build_identity.config_fingerprint:
         raise RuntimeError("build configuration changed after identity capture")
-    declared = build_identity.declared_toolchain.version if build_identity.declared_toolchain else None
-    if not isinstance(declared, str) or not declared.strip():
-        raise RuntimeError("compiler identity is unresolved")
-    if build_result.tool_version is None:
-        raise RuntimeError("observed compiler tool identity is unresolved")
     if not build_result.artifact_paths:
         raise RuntimeError("successful build produced no recorded artifacts")
 
@@ -177,6 +179,7 @@ def load_bound_foundry_build_info(
     if not records:
         raise RuntimeError("successful build produced no provenance-complete build-info AST")
     artifact_set = set(build_result.artifact_paths)
+    declared = build_identity.declared_toolchain.version if build_identity.declared_toolchain else None
     accepted: list[SolidityBuildInfoSource] = []
     for record in records:
         if record.build_info_file not in artifact_set:
@@ -196,11 +199,15 @@ def load_bound_foundry_build_info(
             continue
         if local_source != record.source:
             continue
-        if record.solc_version.strip() != declared.strip():
+        if isinstance(declared, str) and declared.strip() and record.solc_version.strip() != declared.strip():
             continue
         accepted.append(record)
     if not accepted:
         raise RuntimeError("no build-info AST is bound to the exact build, compiler, and source")
+
+    observed_compilers = {record.solc_version.strip() for record in accepted if isinstance(record.solc_version, str) and record.solc_version.strip()}
+    if len(observed_compilers) != 1:
+        raise RuntimeError("accepted build-info artifacts disagree on compiler identity")
     return tuple(accepted)
 
 
