@@ -11,6 +11,7 @@ import argparse
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 from typing import Sequence
@@ -56,6 +57,26 @@ def _container_exists(container: str) -> bool:
     return container in installed
 
 
+def _initialized_guest_command(command: Sequence[str]) -> tuple[str, ...]:
+    """Run a command through bash after initializing an available NVM install.
+
+    PRoot's non-interactive shell does not necessarily source the user's shell
+    initialization files. We therefore initialize NVM by its stable interface,
+    without binding CYDRA to a particular Node version or installation path.
+    If NVM is absent, the command proceeds with the guest's normal PATH.
+    """
+    command_text = shlex.join(tuple(command))
+    script = (
+        'if [ -n "${NVM_DIR:-}" ] && [ -s "$NVM_DIR/nvm.sh" ]; then '
+        '. "$NVM_DIR/nvm.sh"; '
+        'elif [ -s "$HOME/.nvm/nvm.sh" ]; then '
+        '. "$HOME/.nvm/nvm.sh"; '
+        'fi; '
+        f"exec {command_text}"
+    )
+    return ("bash", "-lc", script)
+
+
 def build_plan(
     repository: str | os.PathLike[str],
     *,
@@ -68,6 +89,7 @@ def build_plan(
         raise ValueError(f"repository directory does not exist: {repo}")
 
     home = Path.home().resolve()
+    initialized_command = _initialized_guest_command(command)
     try:
         repo.relative_to(home)
     except ValueError:
@@ -75,14 +97,14 @@ def build_plan(
         bind = f"{repo}:{guest_repository}"
         launch = (
             "proot-distro", "login", container, "--bind", bind,
-            "--work-dir", guest_repository, "--", *tuple(command),
+            "--work-dir", guest_repository, "--", *initialized_command,
         )
         return BootstrapPlan(container, repo, guest_repository, False, launch)
 
     guest_repository = repo.as_posix()
     launch = (
         "proot-distro", "login", container, "--shared-home", "--work-dir",
-        guest_repository, "--", *tuple(command),
+        guest_repository, "--", *initialized_command,
     )
     return BootstrapPlan(container, repo, guest_repository, True, launch)
 
