@@ -31,6 +31,32 @@ def test_typescript_provider_normalizes_compiler_structure(monkeypatch, tmp_path
     assert observation.provenance[0].startswith("sha256:")
 
 
+def test_typescript_provider_binds_resolved_import_to_supplied_file(monkeypatch, tmp_path):
+    payload = {
+        "compiler": "typescript-compiler-api",
+        "compiler_version": "6.0.0",
+        "observations": [
+            {"path": "src/a.ts", "kind": "file", "name": "src/a.ts", "line": 1, "attributes": {}},
+            {"path": "src/b.ts", "kind": "file", "name": "src/b.ts", "line": 1, "attributes": {}},
+            {"path": "src/a.ts", "kind": "import", "name": "./b", "line": 2,
+             "attributes": {"resolved_path": str((tmp_path / "src/b.ts").resolve()), "resolution_status": "RESOLVED"}},
+        ],
+    }
+    monkeypatch.setattr(
+        "cydra.typescript_provider.subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr=""),
+    )
+    provider = TypeScriptCompilerProvider(tmp_path)
+    observations = tuple(provider.observe(
+        ["src/a.ts", "src/b.ts"], {"src/a.ts": 'import "./b";', "src/b.ts": "export const b = 1;"}
+    ))
+    import_observation = next(o for o in observations if o.kind is SourceObservationKind.IMPORT)
+
+    assert len(import_observation.relationships) == 1
+    assert import_observation.relationships[0].relation == "imports"
+    assert import_observation.relationships[0].target_observation_id == "file:src/b.ts:1:src/b.ts"
+
+
 def test_typescript_provider_fails_closed_when_compiler_is_unavailable(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "cydra.typescript_provider.subprocess.run",
