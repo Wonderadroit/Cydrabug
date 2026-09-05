@@ -34,13 +34,14 @@ def test_build_plan_binds_repo_outside_home(tmp_path, monkeypatch):
     assert plan.command[-3:] == ("bash", "-lc", "pwd")
 
 
-def test_container_exists_uses_launch_probe(monkeypatch):
+def test_container_exists_uses_machine_readable_container_list(monkeypatch):
     calls = []
 
     monkeypatch.setattr("cydra.bootstrap._require_executable", lambda name: "/usr/bin/proot-distro")
 
     class Result:
         returncode = 0
+        stdout = "debian\nubuntu\n"
 
     def fake_run(argv, **kwargs):
         calls.append(argv)
@@ -51,4 +52,18 @@ def test_container_exists_uses_launch_probe(monkeypatch):
     from cydra.bootstrap import _container_exists
 
     assert _container_exists("ubuntu")
-    assert calls == [["proot-distro", "login", "ubuntu", "--", "true"]]
+    assert calls == [["proot-distro", "list", "--quiet"]]
+
+
+def test_container_exists_rejects_unlisted_container(monkeypatch):
+    monkeypatch.setattr("cydra.bootstrap._require_executable", lambda name: "/usr/bin/proot-distro")
+
+    class Result:
+        returncode = 0
+        stdout = "debian\n"
+
+    monkeypatch.setattr("cydra.bootstrap.subprocess.run", lambda *args, **kwargs: Result())
+
+    from cydra.bootstrap import _container_exists
+
+    assert not _container_exists("ubuntu")
