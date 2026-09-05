@@ -1,5 +1,32 @@
 # CYDRA UPDATE LOG
 
+## 2026-09-05 — ens-source-observation-experiment
+
+### Change
+Added a narrow ENS experiment harness that measures compiler-backed TypeScript source reconstruction over the frozen source inventory.
+
+### Boundary
+`ENS source inventory + acquired source text → TypeScript compiler observations → explicit module relationships → canonical SystemModel`
+
+### Why
+The next research-critical question is empirical: whether the TypeScript provider can turn the 1,746-file ENS inventory into a useful, provenance-preserving model. More architecture work without this measurement would not establish research capability.
+
+### Implementation
+- Added `cydra/ens_source_experiment.py`.
+- Reads the existing `.cydra/ens-source-files.txt` inventory and acquired source files.
+- Runs the existing compiler-backed TypeScript provider once and projects that exact observation set into the canonical SystemModel.
+- Reports deterministic measurement categories: supplied files, observations by kind, resolved/unresolved imports and exports, internal relationships, external resolutions, node/edge counts, and compiler version.
+- Added a regression test using a mocked provider so metric semantics can be checked without requiring the ENS dependency tree in CI.
+
+### Safety semantics
+This harness performs source reconstruction measurement only. It does not establish exact audited-source identity, grant testing authority, or perform active vulnerability testing.
+
+### Live-contest exercise
+The experiment is designed specifically for the ENS Audit Competition source inventory and its current TypeScript reconstruction boundary.
+
+### Validation status
+Implementation and regression test are committed on `live-immunefi-work`. Actual ENS runtime measurement must be performed in the user's correctly configured PRoot target environment before claiming observation or relationship coverage.
+
 ## 2026-09-05 — typescript-module-resolution
 
 ### Change
