@@ -55,6 +55,20 @@ def test_container_exists_uses_machine_readable_container_list(monkeypatch):
     assert calls == [["proot-distro", "list", "--quiet"]]
 
 
+def test_container_exists_accepts_active_marker(monkeypatch):
+    monkeypatch.setattr("cydra.bootstrap._require_executable", lambda name: "/usr/bin/proot-distro")
+
+    class Result:
+        returncode = 0
+        stdout = "* ubuntu\ndebian\n"
+
+    monkeypatch.setattr("cydra.bootstrap.subprocess.run", lambda *args, **kwargs: Result())
+
+    from cydra.bootstrap import _container_exists
+
+    assert _container_exists("ubuntu")
+
+
 def test_container_exists_rejects_unlisted_container(monkeypatch):
     monkeypatch.setattr("cydra.bootstrap._require_executable", lambda name: "/usr/bin/proot-distro")
 
