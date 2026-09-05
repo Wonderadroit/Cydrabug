@@ -1,6 +1,9 @@
 import pytest
 
-from cydra.execution_observation import variant_observation_from_trusted_result
+from cydra.execution_observation import (
+    execution_evidence_from_trusted_variant,
+    variant_observation_from_trusted_result,
+)
 from cydra.execution_request import ExecutionRequest
 from cydra.external_execution import ExternalExecutionGateway
 
@@ -13,6 +16,7 @@ class Result:
         self._payload = {
             "execution_id": request.execution_id,
             "request_digest": request.digest,
+            "adapter": request.adapter,
             "outcome": outcome,
             "variant_id": "boundary",
             "evidence_id": "exec-evidence:1",
@@ -101,3 +105,28 @@ def test_manual_outcome_argument_is_not_part_of_observation_boundary():
 
     with pytest.raises(TypeError):
         variant_observation_from_trusted_result(gateway, request, result, outcome="INVARIANT_PRESERVED")
+
+
+def test_variant_evidence_uses_the_same_trusted_receipt_and_derives_polarity():
+    gateway, request = make_gateway_and_request()
+    result = gateway.execute("experiment", request, authorization=Authorization())
+
+    evidence = execution_evidence_from_trusted_variant(gateway, request, result)
+
+    assert evidence.evidence_id == "exec-evidence:1"
+    assert evidence.execution_id == request.execution_id
+    assert evidence.request_digest == request.digest
+    assert evidence.polarity == "supports"
+    assert evidence.outcome == "INVARIANT_VIOLATED"
+    assert evidence.receipt_fingerprint
+
+
+def test_mutating_a_trusted_result_invalidates_both_observation_and_evidence():
+    gateway, request = make_gateway_and_request()
+    result = gateway.execute("experiment", request, authorization=Authorization())
+    result._payload["mechanism_fingerprint"] = "forged-mechanism"
+
+    with pytest.raises(ValueError, match="mutated after trust was established"):
+        variant_observation_from_trusted_result(gateway, request, result)
+    with pytest.raises(ValueError, match="mutated after trust was established"):
+        execution_evidence_from_trusted_variant(gateway, request, result)
