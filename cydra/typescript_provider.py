@@ -28,23 +28,13 @@ class TypeScriptCompilerProvider:
 
     name = "typescript-compiler"
 
-    def __init__(
-        self,
-        target_root: str | Path,
-        *,
-        node: str = "node",
-        scope_resolver: Callable[[str], str] | None = None,
-    ) -> None:
+    def __init__(self, target_root: str | Path, *, node: str = "node", scope_resolver: Callable[[str], str] | None = None) -> None:
         self.target_root = Path(target_root).resolve()
         self.node = node
         self.scope_resolver = scope_resolver or (lambda _path: "UNKNOWN")
         self.helper = Path(__file__).with_name("typescript_observer.cjs")
 
-    def observe(
-        self,
-        paths: Iterable[str],
-        sources: Mapping[str, str],
-    ) -> Iterable[SourceObservation]:
+    def observe(self, paths: Iterable[str], sources: Mapping[str, str]) -> Iterable[SourceObservation]:
         files = [
             {"path": path, "source": sources[path]}
             for path in sorted(set(paths))
@@ -56,7 +46,7 @@ class TypeScriptCompilerProvider:
         completed = subprocess.run(
             [self.node, str(self.helper)],
             cwd=self.target_root,
-            input=json.dumps({"files": files}),
+            input=json.dumps({"target_root": str(self.target_root), "files": files}),
             capture_output=True,
             text=True,
             check=False,
@@ -65,8 +55,7 @@ class TypeScriptCompilerProvider:
             raise SourceProviderUnavailable(completed.stderr.strip())
         if completed.returncode != 0:
             raise SourceProviderUnavailable(
-                f"TypeScript observer failed with exit code {completed.returncode}: "
-                f"{completed.stderr.strip()}"
+                f"TypeScript observer failed with exit code {completed.returncode}: {completed.stderr.strip()}"
             )
         try:
             payload = json.loads(completed.stdout)
@@ -87,19 +76,17 @@ class TypeScriptCompilerProvider:
             attributes = dict(item.get("attributes", {}))
             attributes["line"] = line
             source_hash = hashlib.sha256(sources[path].encode("utf-8")).hexdigest()
-            observations.append(
-                SourceObservation(
-                    observation_id=f"{kind.value}:{path}:{line}:{name}",
-                    kind=kind,
-                    path=path,
-                    name=name,
-                    attributes=attributes,
-                    provider=self.name,
-                    tool="typescript-compiler-api",
-                    tool_version=version,
-                    strength=ObservationStrength.COMPILER,
-                    provenance=(f"sha256:{source_hash}", f"target-root:{self.target_root}"),
-                    scope_state=self.scope_resolver(path),
-                )
-            )
+            observations.append(SourceObservation(
+                observation_id=f"{kind.value}:{path}:{line}:{name}",
+                kind=kind,
+                path=path,
+                name=name,
+                attributes=attributes,
+                provider=self.name,
+                tool="typescript-compiler-api",
+                tool_version=version,
+                strength=ObservationStrength.COMPILER,
+                provenance=(f"sha256:{source_hash}", f"target-root:{self.target_root}"),
+                scope_state=self.scope_resolver(path),
+            ))
         return tuple(observations)
