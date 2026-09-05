@@ -1,42 +1,51 @@
+import json
+from types import SimpleNamespace
+
 import pytest
 
 from cydra.source_provider import ObservationStrength, SourceObservationKind
-from cydra.typescript_provider import TypeScriptCompilerProvider
+from cydra.typescript_provider import SourceProviderUnavailable, TypeScriptCompilerProvider
 
 
-def test_typescript_provider_uses_compiler_structure(tmp_path):
-    source = tmp_path / "app.ts"
-    source.write_text(
-        "import { x } from './dep';\n"
-        "export function transfer(to: string) { return x(to); }\n"
-        "export interface Config { owner: string }\n",
-        encoding="utf-8",
-    )
+def test_typescript_provider_normalizes_compiler_structure(monkeypatch, tmp_path):
+    payload = {
+        "compiler": "typescript-compiler-api",
+        "compiler_version": "6.0.0",
+        "observations": [
+            {
+                "path": "src/app.ts",
+                "kind": "function",
+                "name": "transfer",
+                "line": 7,
+                "attributes": {"parameters": 2},
+            }
+        ],
+    }
 
-    try:
-        observations = tuple(TypeScriptCompilerProvider().observe([str(source)], {}))
-    except RuntimeError as exc:
-        pytest.skip(str(exc))
+    def fake_run(*args, **kwargs):
+        return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
 
-    kinds = {observation.kind for observation in observations}
-    assert SourceObservationKind.FILE in kinds
-    assert SourceObservationKind.IMPORT in kinds
-    assert SourceObservationKind.FUNCTION in kinds
-    assert SourceObservationKind.TYPE in kinds
-    assert all(observation.strength is ObservationStrength.COMPILER for observation in observations)
-    assert all(observation.provider == "typescript-compiler" for observation in observations)
+    monkeypatch.setattr("cydra.typescript_provider.subprocess.run", fake_run)
+    provider = TypeScriptCompilerProvider(tmp_path, scope_resolver=lambda _: "IN_SCOPE")
+    observations = tuple(provider.observe(["src/app.ts"], {"src/app.ts": "export function transfer(a,b) {}"}))
+
+    assert len(observations) == 1
+    observation = observations[0]
+    assert observation.kind is SourceObservationKind.FUNCTION
+    assert observation.strength is ObservationStrength.COMPILER
+    assert observation.tool == "typescript-compiler-api"
+    assert observation.tool_version == "6.0.0"
+    assert observation.scope_state == "IN_SCOPE"
+    assert observation.attributes["line"] == 7
+    assert observation.provenance[0].startswith("sha256:")
 
 
-def test_typescript_provider_does_not_infer_authorization(tmp_path):
-    source = tmp_path / "auth.ts"
-    source.write_text(
-        "export function requireAuth() { return true; }\n",
-        encoding="utf-8",
-    )
+def test_typescript_provider_fails_closed_when_compiler_is_unavailable(monkeypatch, tmp_path):
+    def fake_run(*args, **kwargs):
+        return SimpleNamespace(returncode=42, stdout="", stderr="typescript compiler API unavailable")
 
-    try:
-        observations = tuple(TypeScriptCompilerProvider().observe([str(source)], {}))
-    except RuntimeError as exc:
-        pytest.skip(str(exc))
+    monkeypatch.setattr("cydra.typescript_provider.subprocess.run", fake_run)
+    provider = TypeScriptCompilerProvider(tmp_path)
 
-    assert all(observation.kind is not SourceObservationKind.AUTHORIZATION for observation in observations)
+    with pytest.raises(SourceProviderUnavailable, match="typescript compiler API unavailable"):
+        tuple(provider.observe(["src/app.ts"], {"src/app.ts": "export const x = 1;"}))
