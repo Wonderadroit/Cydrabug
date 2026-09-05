@@ -37,14 +37,7 @@ def _require_executable(name: str) -> str:
 
 
 def _container_exists(container: str) -> bool:
-    """Determine whether the named PRoot-Distro container is installed.
-
-    PRoot-Distro exposes a machine-friendly ``list --quiet`` form that emits
-    installed container names one per line. Using that boundary avoids treating
-    an execution-context difference in a guest launch probe as evidence that an
-    installed container is absent. Actual launchability is verified when CYDRA
-    enters the container and runs its doctor command.
-    """
+    """Determine whether the named PRoot-Distro container is installed."""
     _require_executable("proot-distro")
     result = subprocess.run(
         ["proot-distro", "list", "--quiet"],
@@ -54,7 +47,15 @@ def _container_exists(container: str) -> bool:
     )
     if result.returncode != 0:
         return False
-    installed = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+    # PRoot-Distro marks the active/default installed distribution with ``*``
+    # in some versions even in quiet output. Treat that marker as presentation,
+    # not part of the container identity.
+    installed = {
+        line.strip().lstrip("*").strip()
+        for line in result.stdout.splitlines()
+        if line.strip()
+    }
     return container in installed
 
 
