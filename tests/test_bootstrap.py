@@ -3,7 +3,7 @@ from pathlib import Path
 from cydra.bootstrap import build_plan
 
 
-def test_build_plan_uses_shared_home_for_repo_under_home(tmp_path, monkeypatch):
+def test_build_plan_uses_actual_shared_home_path_for_repo_under_home(tmp_path, monkeypatch):
     home = tmp_path / "home"
     repo = home / "cydra-bridge" / "workspace" / "cydrabug"
     repo.mkdir(parents=True)
@@ -12,7 +12,7 @@ def test_build_plan_uses_shared_home_for_repo_under_home(tmp_path, monkeypatch):
     plan = build_plan(repo, container="ubuntu")
 
     assert plan.shared_home
-    assert plan.guest_repository == "/root/cydra-bridge/workspace/cydrabug"
+    assert plan.guest_repository == repo.resolve().as_posix()
     assert plan.command[:5] == ("proot-distro", "login", "ubuntu", "--shared-home", "--work-dir")
     assert plan.command[-3:] == ("python3", "-m", "cydra.doctor")
 
