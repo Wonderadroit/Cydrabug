@@ -21,6 +21,17 @@ def test_runtime_report_detects_supported_proot_ubuntu_environment(monkeypatch):
     assert report.architecture == "aarch64"
 
 
+def test_runtime_report_detects_android_kernel_with_ubuntu_userspace(monkeypatch):
+    monkeypatch.setattr("cydra.runtime.platform.system", lambda: "Android")
+    monkeypatch.setattr("cydra.runtime.platform.machine", lambda: "aarch64")
+    monkeypatch.setattr("cydra.runtime._run", lambda argv, timeout=10: (True, "ok"))
+    monkeypatch.setattr("builtins.open", lambda *args, **kwargs: type("F", (), {"read": lambda self: "ID=ubuntu\n"})())
+    report = detect_runtime()
+    assert report.profile == "proot-ubuntu"
+    assert report.ready
+    assert report.platform == "android"
+
+
 def test_runtime_report_is_blocked_when_required_proot_is_missing(monkeypatch):
     monkeypatch.setattr("cydra.runtime.platform.system", lambda: "Linux")
     monkeypatch.setattr("cydra.runtime.platform.machine", lambda: "aarch64")
