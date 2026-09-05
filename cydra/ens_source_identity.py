@@ -1,14 +1,24 @@
-"""ENS audited-source lineage evidence.
+"""ENS audited-source identity and lineage evidence.
 
-The competition publishes an upstream audited commit SHA that is not the same Git
-object as the public contest fork's root commit. The fork explicitly declares that
-it was created from the audited upstream revision. This module records that fact as
-provenance evidence without treating the fork commit as cryptographically identical
-to the upstream Git object or as build-verified source identity.
+The competition publishes an upstream audited commit SHA that is not the same
+Git object as the public contest fork's root commit.
+
+The fork declares that it was created from the audited upstream revision.
+That declaration is provenance evidence, not cryptographic proof.
+
+This module therefore keeps two separate concepts:
+
+1. declared lineage;
+2. independently verified Git identity.
+
+Only the second can produce VERIFIED source identity.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+import subprocess
 
 from .ens_target import AUDITED_REVISION, DEFAULT_REPOSITORY
 
@@ -38,8 +48,105 @@ class ENSSourceLineage:
         return False
 
 
+@dataclass(frozen=True)
+class ENSSourceIdentityCheck:
+    repository_path: str
+    advertised_revision: str
+    observed_revision: str | None
+    advertised_object_available: bool
+    status: str
+    reason: str
+
+    @property
+    def verified(self) -> bool:
+        return self.status == "VERIFIED"
+
+
+def verify_source_identity(
+    repository_path: str | Path,
+    *,
+    advertised_revision: str = AUDITED_REVISION,
+) -> ENSSourceIdentityCheck:
+    """Independently evaluate an acquired Git checkout against the advertised SHA.
+
+    A declared fork message is never treated as proof.
+
+    VERIFIED requires the checkout HEAD to be exactly the advertised Git
+    commit and for that Git object to be independently available in the
+    checkout.
+
+    Missing advertised Git evidence remains UNRESOLVED rather than being
+    classified as a mismatch.
+    """
+    path = Path(repository_path).resolve()
+
+    def git(*args: str) -> tuple[int, str]:
+        completed = subprocess.run(
+            ["git", "-C", str(path), *args],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return completed.returncode, completed.stdout.strip()
+
+    code, observed = git("rev-parse", "HEAD")
+
+    if code != 0:
+        return ENSSourceIdentityCheck(
+            repository_path=str(path),
+            advertised_revision=advertised_revision,
+            observed_revision=None,
+            advertised_object_available=False,
+            status="UNRESOLVED",
+            reason="repository HEAD could not be resolved",
+        )
+
+    code, _ = git(
+        "cat-file",
+        "-e",
+        f"{advertised_revision}^{{commit}}",
+    )
+
+    if code != 0:
+        return ENSSourceIdentityCheck(
+            repository_path=str(path),
+            advertised_revision=advertised_revision,
+            observed_revision=observed,
+            advertised_object_available=False,
+            status="UNRESOLVED",
+            reason=(
+                "advertised Git commit object is not independently available"
+            ),
+        )
+
+    if observed == advertised_revision:
+        return ENSSourceIdentityCheck(
+            repository_path=str(path),
+            advertised_revision=advertised_revision,
+            observed_revision=observed,
+            advertised_object_available=True,
+            status="VERIFIED",
+            reason=(
+                "repository HEAD exactly matches the advertised "
+                "audited revision"
+            ),
+        )
+
+    return ENSSourceIdentityCheck(
+        repository_path=str(path),
+        advertised_revision=advertised_revision,
+        observed_revision=observed,
+        advertised_object_available=True,
+        status="MISMATCH",
+        reason=(
+            "repository HEAD differs from the advertised "
+            "audited revision"
+        ),
+    )
+
+
 def declared_source_lineage() -> ENSSourceLineage:
-    """Return project-declared lineage evidence without promoting it to audit-ready."""
+    """Return declared lineage without promoting it to verified identity."""
     return ENSSourceLineage(
         repository=DEFAULT_REPOSITORY,
         audited_revision=AUDITED_REVISION,

@@ -1,4 +1,4 @@
-from cydra.live_contest import acquire_live_contest
+from cydra.live_contest import AcquisitionIdentityEvidence, acquire_live_contest
 from cydra.program_intake import AcquiredResource, ResourceKind, ScopeStatus
 
 
@@ -8,7 +8,7 @@ class FakeFetcher:
 
     def fetch(self, locator):
         self.calls.append(locator)
-        content = f'<html><a href="https://github.com/example/ens-app">repo</a></html>'
+        content = f'<html><a href="https://github.com/example/ens-app">repo</a> audited revision 63772fd872af472ced58b009499355f3430c2a86</html>'
         return AcquiredResource(locator, content, "fixture")
 
 
@@ -27,6 +27,25 @@ def test_live_contest_acquisition_composes_immunefi_intake_and_graph(tmp_path):
     assert result.discovered
     assert any(item.kind is ResourceKind.REPOSITORY for item in result.discovered)
     assert (tmp_path / "live-contest.json").is_file()
+
+
+def test_acquisition_preserves_unresolved_identity_evidence(tmp_path):
+    fetcher = FakeFetcher()
+    result = acquire_live_contest(
+        "https://immunefi.com/audit-competition/audit-competition-ens/information/",
+        fetcher=fetcher,
+        receipt_path=tmp_path / "live-contest.json",
+    )
+
+    assert isinstance(result.identity_evidence, AcquisitionIdentityEvidence)
+    assert result.identity_evidence.status == "UNRESOLVED"
+    assert result.identity_evidence.independent_verification is False
+    assert result.identity_evidence.acquired_revision is None
+    assert result.identity_evidence.advertised_revision == "63772fd872af472ced58b009499355f3430c2a86"
+
+    receipt = (tmp_path / "live-contest.json").read_text()
+    assert '"identity_evidence"' in receipt
+    assert '"status": "UNRESOLVED"' in receipt
 
 
 def test_discovered_project_resource_does_not_become_authorized(tmp_path):

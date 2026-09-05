@@ -11,17 +11,60 @@ import json
 from pathlib import Path
 from typing import Sequence
 from urllib.parse import urlparse
+import re
 
 from .immunefi_live import PublicHttpFetcher
 from .program_intake import (
     AcquiredResource,
+    AcquisitionState,
     ImmunefiAcquisitionAdapter,
     ProgramContract,
     ProgramResource,
     ResourceDiscovery,
+    ResourceKind,
+    ScopeStatus,
     bounded_reference_plan,
     expand_resource_dependency_graph,
 )
+
+
+def _extract_revision_assertion(content: str) -> str | None:
+    """Extract a 40-hex Git revision asserted by acquired program material.
+
+    This is evidence extraction only. A matching Git object must be verified
+    independently by the source-identity layer.
+    """
+    patterns = (
+        r"(?i)(?:audited|audit(?:ed)?\s+revision|commit|revision)[^0-9a-f]{0,80}"
+        r"([0-9a-f]{40})",
+        r"(?<![0-9a-f])([0-9a-f]{40})(?![0-9a-f])",
+    )
+
+    for pattern in patterns:
+        match = re.search(pattern, content)
+        if match:
+            return match.group(1).lower()
+
+    return None
+
+
+@dataclass(frozen=True)
+class AcquisitionIdentityEvidence:
+    """Source-identity facts observed during passive program acquisition.
+
+    These are observations only. They do not establish cryptographic source
+    identity, build identity, or authorization to test a discovered resource.
+    """
+
+    repository_locator: str | None = None
+    advertised_revision: str | None = None
+    declared_lineage_revision: str | None = None
+    acquired_revision: str | None = None
+    independent_verification: bool = False
+    status: str = "UNRESOLVED"
+    reason: str = (
+        "source identity requires independent repository/build verification"
+    )
 
 
 @dataclass(frozen=True)
@@ -31,13 +74,25 @@ class LiveContestAcquisition:
     acquired: tuple[AcquiredResource, ...]
     discovered: tuple[ResourceDiscovery, ...]
     graph: tuple[ProgramResource, ...]
+    identity_evidence: AcquisitionIdentityEvidence | None = None
 
     @property
     def ready_for_active_testing(self) -> bool:
-        return self.contract.ready_for_active_testing and all(
-            resource.state.value == "ACQUIRED" or not resource.required
-            for resource in self.graph
-        )
+        if not self.contract.ready_for_active_testing:
+            return False
+
+        for resource in self.graph:
+            if resource.kind is ResourceKind.REPOSITORY:
+                if resource.scope is not ScopeStatus.IN_SCOPE:
+                    return False
+                if resource.state is not AcquisitionState.ACQUIRED:
+                    return False
+
+            if resource.required:
+                if resource.state is not AcquisitionState.ACQUIRED:
+                    return False
+
+        return True
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -63,6 +118,23 @@ class LiveContestAcquisition:
                 }
                 for item in self.discovered
             ],
+            "identity_evidence": (
+                {
+                    "repository_locator": self.identity_evidence.repository_locator,
+                    "advertised_revision": self.identity_evidence.advertised_revision,
+                    "declared_lineage_revision": (
+                        self.identity_evidence.declared_lineage_revision
+                    ),
+                    "acquired_revision": self.identity_evidence.acquired_revision,
+                    "independent_verification": (
+                        self.identity_evidence.independent_verification
+                    ),
+                    "status": self.identity_evidence.status,
+                    "reason": self.identity_evidence.reason,
+                }
+                if self.identity_evidence is not None
+                else None
+            ),
             "graph": [
                 {
                     "resource_id": item.resource_id,
@@ -117,12 +189,31 @@ def acquire_live_contest(
         fetcher=None,
         max_depth=max_depth,
     )
+    advertised_revision = None
+    for page in pages:
+        advertised_revision = _extract_revision_assertion(page.content)
+        if advertised_revision is not None:
+            break
+
+    repository_locator = next(
+        (
+            resource.locator
+            for resource in graph
+            if resource.kind is ResourceKind.REPOSITORY
+        ),
+        None,
+    )
+
     result = LiveContestAcquisition(
         locator=locator,
         contract=contract,
         acquired=pages,
         discovered=tuple(discovered),
         graph=tuple(graph),
+        identity_evidence=AcquisitionIdentityEvidence(
+            repository_locator=repository_locator,
+            advertised_revision=advertised_revision,
+        ),
     )
     if receipt_path is not None:
         path = Path(receipt_path).resolve()
