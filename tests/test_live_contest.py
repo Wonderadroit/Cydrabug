@@ -1,5 +1,6 @@
 from cydra.live_contest import AcquisitionIdentityEvidence, acquire_live_contest
 from cydra.program_intake import AcquiredResource, ResourceKind, ScopeStatus
+from cydra.source_identity import SourceIdentityReceipt
 from cydra.source_lineage import LineageStatus, SourceCandidate
 
 
@@ -17,10 +18,7 @@ class FakeFetcher:
 
     def fetch(self, locator):
         self.calls.append(locator)
-        links = " ".join(
-            f'<a href="{repository}">repo</a>'
-            for repository in self.repository_links
-        )
+        links = " ".join(f'<a href="{repository}">repo</a>' for repository in self.repository_links)
         content = f'<html>{links} audited revision {REVISION}</html>'
         return AcquiredResource(locator, content, "fixture")
 
@@ -35,7 +33,6 @@ def acquire(fetcher, tmp_path):
 
 def test_live_contest_acquisition_composes_immunefi_intake_and_graph(tmp_path):
     result = acquire(FakeFetcher(), tmp_path)
-
     assert result.contract.platform == "immunefi"
     assert len(result.acquired) == 3
     assert result.contract.fingerprint
@@ -49,7 +46,6 @@ def test_live_contest_acquisition_composes_immunefi_intake_and_graph(tmp_path):
 
 def test_acquisition_preserves_unresolved_identity_evidence(tmp_path):
     result = acquire(FakeFetcher(), tmp_path)
-
     assert isinstance(result.identity_evidence, AcquisitionIdentityEvidence)
     assert result.identity_evidence.status == "UNRESOLVED"
     assert result.identity_evidence.independent_verification is False
@@ -57,7 +53,6 @@ def test_acquisition_preserves_unresolved_identity_evidence(tmp_path):
     assert result.identity_evidence.acquired_revision is None
     assert result.identity_evidence.advertised_revision == REVISION
     assert "insufficient evidence" in result.identity_evidence.reason
-
     receipt = (tmp_path / "live-contest.json").read_text()
     assert '"identity_evidence"' in receipt
     assert '"repository_locator": null' in receipt
@@ -67,7 +62,6 @@ def test_acquisition_preserves_unresolved_identity_evidence(tmp_path):
 
 def test_discovered_project_resource_does_not_become_authorized(tmp_path):
     result = acquire(FakeFetcher(), tmp_path)
-
     repo_resources = [r for r in result.graph if r.kind is ResourceKind.REPOSITORY]
     assert repo_resources
     assert all(r.scope is ScopeStatus.UNKNOWN for r in repo_resources)
@@ -75,25 +69,8 @@ def test_discovered_project_resource_does_not_become_authorized(tmp_path):
 
 
 def test_repository_discovery_order_cannot_change_source_identity(tmp_path):
-    first = acquire(
-        FakeFetcher(
-            repository_links=(
-                "https://github.com/example/context-pr",
-                "https://github.com/example/target",
-            )
-        ),
-        tmp_path,
-    )
-    second = acquire(
-        FakeFetcher(
-            repository_links=(
-                "https://github.com/example/target",
-                "https://github.com/example/context-pr",
-            )
-        ),
-        tmp_path,
-    )
-
+    first = acquire(FakeFetcher(("https://github.com/example/context-pr", "https://github.com/example/target")), tmp_path)
+    second = acquire(FakeFetcher(("https://github.com/example/target", "https://github.com/example/context-pr")), tmp_path)
     assert first.identity_evidence.repository_locator is None
     assert second.identity_evidence.repository_locator is None
     assert first.identity_evidence.reason == second.identity_evidence.reason
@@ -103,17 +80,12 @@ def test_repository_discovery_order_cannot_change_source_identity(tmp_path):
 
 def test_provenance_supported_source_never_unlocks_active_testing(tmp_path):
     result = acquire(FakeFetcher(), tmp_path)
-    resolved = result.resolve_source_candidates(
-        [
-            SourceCandidate(
-                locator="https://github.com/immunefi-team/audit-comp-ens",
-                observed_revision=FORK_REVISION,
-                advertised_revision_available=False,
-                declared_lineage=True,
-            )
-        ]
-    )
-
+    resolved = result.resolve_source_candidates([
+        SourceCandidate(locator="https://github.com/immunefi-team/audit-comp-ens",
+                        observed_revision=FORK_REVISION,
+                        advertised_revision_available=False,
+                        declared_lineage=True)
+    ])
     assert resolved.source_resolution.status is LineageStatus.PROVENANCE_SUPPORTED
     assert resolved.source_resolution.ready_for_analysis is False
     assert resolved.identity_evidence.independent_verification is False
@@ -122,18 +94,46 @@ def test_provenance_supported_source_never_unlocks_active_testing(tmp_path):
 
 def test_exact_verified_source_becomes_eligible_for_identity_gate(tmp_path):
     result = acquire(FakeFetcher(), tmp_path)
-    resolved = result.resolve_source_candidates(
-        [
-            SourceCandidate(
-                locator="https://example.invalid/audited.git",
-                observed_revision=REVISION,
-                advertised_revision_available=True,
-                observed_head_matches=True,
-            )
-        ]
-    )
-
+    resolved = result.resolve_source_candidates([
+        SourceCandidate(locator="https://example.invalid/audited.git",
+                        observed_revision=REVISION,
+                        advertised_revision_available=True,
+                        observed_head_matches=True)
+    ])
     assert resolved.source_resolution.status is LineageStatus.VERIFIED
     assert resolved.source_resolution.ready_for_analysis is True
     assert resolved.identity_evidence.repository_locator == "https://example.invalid/audited.git"
+    assert resolved.identity_evidence.acquired_revision == REVISION
     assert resolved.identity_evidence.independent_verification is True
+
+
+def test_failed_exact_acquisition_can_be_combined_with_declared_lineage(tmp_path):
+    result = acquire(FakeFetcher(), tmp_path)
+    failed = SourceIdentityReceipt(
+        repository_locator="https://github.com/immunefi-team/audit-comp-ens",
+        repository="https://github.com/immunefi-team/audit-comp-ens.git",
+        requested_revision=REVISION,
+        checkout_path=str(tmp_path / "ens"),
+        observed_revision=None,
+        advertised_revision_available=False,
+        working_tree_clean=False,
+        target_paths=(),
+        missing_target_paths=(),
+        status="UNRESOLVED",
+        reason="advertised Git commit object is not independently available",
+    )
+    resolved = result.resolve_source_receipts(
+        [failed],
+        provenance_candidates=[
+            SourceCandidate(
+                locator="https://github.com/immunefi-team/audit-comp-ens",
+                observed_revision=FORK_REVISION,
+                declared_lineage=True,
+            )
+        ],
+    )
+    assert resolved.source_resolution.status is LineageStatus.PROVENANCE_SUPPORTED
+    assert resolved.source_resolution.exact_identity_verified is False
+    assert any(e.kind.value == "OBJECT_ABSENT" for e in resolved.source_resolution.evidence)
+    assert resolved.identity_evidence.repository_locator == "https://github.com/immunefi-team/audit-comp-ens"
+    assert resolved.ready_for_active_testing is False
