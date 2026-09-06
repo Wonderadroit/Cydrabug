@@ -63,6 +63,12 @@ def test_authoritative_asset_identity_is_preserved_separately_from_paths():
         "Smart-account",
     }
     assert "workers/api-worker" in evidence.path_hints
+    asset_paths = {asset.asset_name: asset.path_hints for asset in evidence.assets}
+    assert asset_paths["Manager app Files"] == ("apps/manager",)
+    assert asset_paths["Explorer app Files"] == ("apps/portal",)
+    assert asset_paths["Workers"] == ("workers/api-worker",)
+    assert asset_paths["Transaction-manager"] == ("packages/transaction-manager",)
+    assert asset_paths["Smart-account"] == ("packages/smart-account",)
 
 
 def test_asset_extraction_does_not_cross_into_impacts_or_known_issue_tables():
