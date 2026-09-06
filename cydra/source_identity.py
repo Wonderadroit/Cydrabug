@@ -35,8 +35,10 @@ class SourceIdentityReceipt:
 def repository_locator(locator: str) -> str:
     """Normalize a supported repository/tree/blob locator to its repository URL."""
     parsed = urlparse(locator.strip())
+    if parsed.scheme == "file" and parsed.path:
+        return locator.split("?", 1)[0].split("#", 1)[0]
     if parsed.scheme != "https" or not parsed.hostname:
-        raise ValueError("repository locator must be an HTTPS URL")
+        raise ValueError("repository locator must be an HTTPS URL or local file URL")
 
     host = parsed.hostname.lower()
     parts = [part for part in parsed.path.split("/") if part]
