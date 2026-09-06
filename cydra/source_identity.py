@@ -17,12 +17,12 @@ class SourceIdentityReceipt:
     requested_revision: str
     checkout_path: str
     observed_revision: str | None
-    advertised_revision_available: bool
     working_tree_clean: bool
     target_paths: tuple[str, ...]
     missing_target_paths: tuple[str, ...]
     status: str
     reason: str
+    advertised_revision_available: bool = False
 
     @property
     def verified(self) -> bool:
@@ -100,12 +100,12 @@ def _receipt(*, repository_locator_value: str, repo_url: str, revision: str,
         requested_revision=revision,
         checkout_path=str(destination),
         observed_revision=observed_revision,
-        advertised_revision_available=advertised_revision_available,
         working_tree_clean=working_tree_clean,
         target_paths=target_paths,
         missing_target_paths=missing_target_paths,
         status=status,
         reason=reason,
+        advertised_revision_available=advertised_revision_available,
     )
 
 
@@ -166,7 +166,6 @@ def acquire_and_verify_source(repository_locator_value: str, revision: str,
                         missing_target_paths=target_paths, status="UNRESOLVED",
                         reason="advertised Git commit object is not independently available")
 
-    # The exact object exists locally. Preserve that fact even if later checks fail.
     object_available = True
 
     checkout = subprocess.run(["git", "-C", str(destination), "checkout", "--detach", revision],
