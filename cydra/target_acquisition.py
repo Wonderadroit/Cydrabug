@@ -12,7 +12,7 @@ import re
 from urllib.parse import urlparse
 
 from .live_contest import LiveContestAcquisition
-from .program_intake import ProgramResource, ResourceKind, ScopeStatus
+from .program_intake import ProgramResource, ResourceKind, ScopeStatus, canonical_resource_id
 
 
 _PATH_ROOTS = (
@@ -159,9 +159,6 @@ def _extract_asset_names(content: str) -> tuple[str, ...]:
         if names:
             break
 
-    # Fallback for fetched/sanitized content where table structure is absent.
-    # Restrict extraction to the Assets in Scope section and require the
-    # publication date marker, so known-issue rows/impacts cannot become assets.
     if not names:
         text = _visible_text(content)
         marker = re.search(
@@ -277,6 +274,82 @@ def classify_repository(resource: ProgramResource, evidence: ScopeEvidence) -> T
     )
 
 
+def _candidate_lineage(locator: str, matched_hint: str) -> str | None:
+    """Return the published GitHub locator prefix ending immediately before a path hint."""
+    parsed = urlparse(locator)
+    if parsed.hostname not in {"github.com", "www.github.com"}:
+        return None
+    marker = "/" + matched_hint.strip("/")
+    path = parsed.path
+    index = path.lower().find(marker.lower())
+    if index < 0:
+        return None
+    prefix = path[:index].rstrip("/")
+    if not prefix:
+        return None
+    return f"{parsed.scheme}://{parsed.netloc}{prefix}"
+
+
+def _infer_missing_asset_candidates(
+    candidates: tuple[TargetResourceCandidate, ...],
+    evidence: ScopeEvidence,
+    unresolved_assets: tuple[ScopeAssetEvidence, ...],
+) -> tuple[TargetResourceCandidate, ...]:
+    """Infer missing monorepo paths only when one unique published repository lineage exists.
+
+    This does not invent a repository. It reuses an already observed repository
+    locator and substitutes only the independently declared authoritative path.
+    The resulting candidate still requires source-identity verification later.
+    """
+    inferred: list[TargetResourceCandidate] = []
+    for asset in unresolved_assets:
+        asset_hints = tuple(h for h in asset.path_hints if _asset_matches_hint(asset, h))
+        lineage_map: dict[str, set[str]] = {}
+        for candidate in candidates:
+            if candidate.scope is not ScopeStatus.IN_SCOPE:
+                continue
+            for matched_hint in candidate.matched_hints:
+                lineage = _candidate_lineage(candidate.locator, matched_hint)
+                if lineage is not None:
+                    lineage_map.setdefault(lineage, set()).add(matched_hint)
+        if len(lineage_map) != 1 or not asset_hints:
+            continue
+
+        lineage, _ = next(iter(lineage_map.items()))
+        # Use a candidate's exact published URL shape as the template so branch
+        # names containing slashes remain intact.
+        template = next(
+            candidate
+            for candidate in candidates
+            if any(_candidate_lineage(candidate.locator, hint) == lineage for hint in candidate.matched_hints)
+        )
+        source_hint = next(
+            hint for hint in template.matched_hints
+            if _candidate_lineage(template.locator, hint) == lineage
+        )
+        target_hint = asset_hints[0]
+        marker = "/" + source_hint.strip("/")
+        replacement = "/" + target_hint.strip("/")
+        inferred_locator = template.locator.replace(marker, replacement, 1)
+        inferred.append(
+            TargetResourceCandidate(
+                resource_id=canonical_resource_id(ResourceKind.REPOSITORY, inferred_locator),
+                locator=inferred_locator,
+                scope=ScopeStatus.IN_SCOPE,
+                acquisition_role="TARGET_INFERRED_PATH",
+                matched_hints=(target_hint,),
+                evidence=evidence,
+                reason=(
+                    "authoritative asset path was not linked directly; target path was "
+                    "derived from a unique already-observed repository lineage and must "
+                    "be independently verified in the source-identity phase"
+                ),
+                asset_names=(asset.asset_name,),
+            )
+        )
+    return tuple(inferred)
+
+
 def plan_target_acquisition(result: LiveContestAcquisition) -> TargetAcquisitionPlan:
     scope_resources = [r for r in result.graph if r.kind is ResourceKind.SCOPE]
     if not scope_resources:
@@ -293,6 +366,11 @@ def plan_target_acquisition(result: LiveContestAcquisition) -> TargetAcquisition
         for resource in result.graph
         if resource.kind is ResourceKind.REPOSITORY
     )
+    matched_assets = {name for candidate in candidates for name in candidate.asset_names}
+    unresolved_assets = tuple(asset for asset in evidence.assets if asset.asset_name not in matched_assets)
+
+    inferred = _infer_missing_asset_candidates(candidates, evidence, unresolved_assets)
+    candidates = candidates + inferred
     matched_assets = {name for candidate in candidates for name in candidate.asset_names}
     unresolved_assets = tuple(asset for asset in evidence.assets if asset.asset_name not in matched_assets)
     unresolved = tuple(c.resource_id for c in candidates if c.scope is ScopeStatus.UNKNOWN)
