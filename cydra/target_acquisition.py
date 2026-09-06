@@ -19,12 +19,11 @@ _PATH_ROOTS = (
     "apps", "packages", "workers", "services", "src", "lib", "server",
     "client", "contracts", "crates", "cmd", "internal", "modules", "programs",
 )
+_GENERIC_ASSET_TOKENS = {"app", "apps", "file", "files", "the", "target", "name", "scope"}
 
 
 @dataclass(frozen=True)
 class ScopeAssetEvidence:
-    """One asset identity declared by authoritative scope material."""
-
     asset_name: str
     source_resource_id: str
     path_hints: tuple[str, ...]
@@ -64,9 +63,6 @@ class TargetAcquisitionPlan:
 
     @property
     def ready_for_source_identity(self) -> bool:
-        # Do not advance while an authoritative asset has no resolved target
-        # candidate. Unknown contextual repositories are harmless context, but
-        # missing target coverage is an acquisition evidence gap.
         return bool(self.in_scope_candidates) and not self.unresolved_assets
 
 
@@ -125,6 +121,20 @@ def _visible_text(content: str) -> str:
     return re.sub(r"\s+", " ", text)
 
 
+def _asset_tokens(value: str) -> set[str]:
+    return set(re.sub(r"[^a-z0-9]+", " ", value.lower()).split())
+
+
+def _label_matches_asset(label: str, asset_name: str) -> bool:
+    """Match explicit labels without generic words creating cross-bindings."""
+    label_tokens = _asset_tokens(label) - _GENERIC_ASSET_TOKENS
+    asset_tokens = _asset_tokens(asset_name) - _GENERIC_ASSET_TOKENS
+    if label_tokens & asset_tokens:
+        return True
+    aliases = {"explorer": {"portal"}, "worker": {"workers", "worker"}}
+    return any(token in aliases.get(asset_token, set()) for asset_token in asset_tokens for token in label_tokens)
+
+
 def _extract_asset_names(content: str) -> tuple[str, ...]:
     """Extract asset names only from the authoritative asset table structure."""
     parser = _TableParser()
@@ -161,43 +171,48 @@ def _extract_asset_names(content: str) -> tuple[str, ...]:
 
     if not names:
         text = _visible_text(content)
-        marker = re.search(
-            r"Assets in Scope(.*?)(?:Impacts in Scope|Public Disclosure|Out of scope)",
-            text,
-            re.I,
-        )
+        marker = re.search(r"Assets in Scope(.*?)(?:Impacts in Scope|Public Disclosure|Out of scope)", text, re.I)
         section = marker.group(1) if marker else ""
-        pattern = re.compile(
-            r"(?:Target\s+)?Name\s+(.+?)\s+Added on\s+\d{1,2}\s+[A-Za-z]+\s+\d{4}",
-            re.I,
-        )
+        pattern = re.compile(r"(?:Target\s+)?Name\s+(.+?)\s+Added on\s+\d{1,2}\s+[A-Za-z]+\s+\d{4}", re.I)
         names.extend(dict.fromkeys(match.group(1).strip() for match in pattern.finditer(section)))
 
     return tuple(names)
 
 
-def _asset_path_associations(content: str, assets: tuple[str, ...], hints: tuple[str, ...]) -> dict[str, tuple[str, ...]]:
-    """Recover explicit asset-to-path associations when scope text publishes them.
+def _asset_matches_hint(asset: ScopeAssetEvidence | str, hint: str) -> bool:
+    """Conservatively associate an asset with a path when evidence overlaps."""
+    asset_name = asset.asset_name if isinstance(asset, ScopeAssetEvidence) else asset
+    normalized_name = _asset_tokens(asset_name) - _GENERIC_ASSET_TOKENS
+    path_tokens = _asset_tokens(hint)
+    aliases = {"explorer": {"portal"}, "worker": {"workers", "worker"}}
+    for token in normalized_name:
+        if token in path_tokens:
+            if token in {"manager", "transaction", "smart", "account", "explorer", "worker", "workers"}:
+                if token == "manager" and hint.startswith("packages/"):
+                    continue
+                if token == "transaction" and not hint.startswith("packages/"):
+                    continue
+                if token in {"worker", "workers"} and not hint.startswith("workers/"):
+                    continue
+            return True
+        if path_tokens & aliases.get(token, set()):
+            return True
+    return False
 
-    Parenthesized labels such as ``apps/manager (Manager app)`` are treated as
-    direct evidence. Bare paths are associated only by conservative exact token
-    overlap, with narrowly structural aliases for Explorer/portal and Workers.
-    """
+
+def _asset_path_associations(content: str, assets: tuple[str, ...], hints: tuple[str, ...]) -> dict[str, tuple[str, ...]]:
+    """Recover explicit asset-to-path associations from scope evidence."""
     text = _visible_text(content)
     associations: dict[str, set[str]] = {asset: set() for asset in assets}
 
-    # First consume explicit ``path (asset label)`` evidence. This prevents a
-    # shared token such as ``manager`` from cross-associating unrelated paths.
-    for match in re.finditer(r"(?P<path>(?:" + "|".join(re.escape(root) for root in _PATH_ROOTS) + r")/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)\s*\((?P<label>[^)]+)\)", text):
+    path_pattern = r"(?P<path>(?:" + "|".join(re.escape(root) for root in _PATH_ROOTS) + r")/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)\s*\((?P<label>[^)]+)\)"
+    for match in re.finditer(path_pattern, text):
         path = match.group("path").strip("./").rstrip("/")
         label = match.group("label").strip().lower()
         for asset in assets:
             if _label_matches_asset(label, asset):
                 associations[asset].add(path)
 
-    # Then associate any remaining asset/path pairs using exact meaningful
-    # tokens. One-token matches are allowed only for structurally distinctive
-    # roots, avoiding Manager -> transaction-manager cross-association.
     for asset in assets:
         if associations[asset]:
             continue
@@ -206,18 +221,6 @@ def _asset_path_associations(content: str, assets: tuple[str, ...], hints: tuple
                 associations[asset].add(hint)
 
     return {asset: tuple(sorted(values)) for asset, values in associations.items()}
-
-
-def _label_matches_asset(label: str, asset_name: str) -> bool:
-    label_tokens = set(re.sub(r"[^a-z0-9]+", " ", label.lower()).split())
-    asset_tokens = set(re.sub(r"[^a-z0-9]+", " ", asset_name.lower()).split())
-    if label_tokens & asset_tokens:
-        return True
-    aliases = {
-        "explorer": {"portal"},
-        "worker": {"workers", "worker"},
-    }
-    return any(token in aliases.get(asset_token, set()) for asset_token in asset_tokens for token in label_tokens)
 
 
 def extract_scope_evidence(scope_resource: ProgramResource, content: str) -> ScopeEvidence:
@@ -269,74 +272,21 @@ def _repository_path(locator: str) -> str:
     return "/".join(tail).strip("/").lower()
 
 
-def _asset_matches_hint(asset: ScopeAssetEvidence | str, hint: str) -> bool:
-    """Conservatively associate an asset with a path when evidence overlaps."""
-    asset_name = asset.asset_name if isinstance(asset, ScopeAssetEvidence) else asset
-    normalized_name = re.sub(r"[^a-z0-9]+", " ", asset_name.lower()).split()
-    path_tokens = set(re.sub(r"[^a-z0-9]+", " ", hint.lower()).split())
-    aliases = {"explorer": {"portal"}, "worker": {"workers", "worker"}}
-    for token in normalized_name:
-        if token in path_tokens:
-            # Do not let a generic shared token such as ``manager`` bind an
-            # asset to a different component. Root-aware handling below keeps
-            # distinctive app/worker associations useful.
-            if token in {"manager", "transaction", "smart", "account", "explorer", "worker", "workers"}:
-                if token == "manager" and hint.startswith("packages/"):
-                    continue
-                if token == "transaction" and not hint.startswith("packages/"):
-                    continue
-                if token in {"worker", "workers"} and not hint.startswith("workers/"):
-                    continue
-            return True
-        if path_tokens & aliases.get(token, set()):
-            return True
-    return False
-
-
 def classify_repository(resource: ProgramResource, evidence: ScopeEvidence) -> TargetResourceCandidate:
     if resource.kind is not ResourceKind.REPOSITORY:
         raise ValueError("target classification requires a repository resource")
 
     repository_path = _repository_path(resource.locator)
-    matched = tuple(
-        hint for hint in evidence.path_hints
-        if repository_path == hint.lower() or repository_path.startswith(hint.lower() + "/")
-    )
-    matched_assets = tuple(
-        asset.asset_name
-        for asset in evidence.assets
-        if any(
-            hint in asset.path_hints
-            for hint in matched
-        )
-    )
+    matched = tuple(hint for hint in evidence.path_hints if repository_path == hint.lower() or repository_path.startswith(hint.lower() + "/"))
+    matched_assets = tuple(asset.asset_name for asset in evidence.assets if any(hint in asset.path_hints for hint in matched))
 
     if matched:
-        return TargetResourceCandidate(
-            resource.resource_id,
-            resource.locator,
-            ScopeStatus.IN_SCOPE,
-            "TARGET",
-            matched,
-            evidence,
-            "repository path is covered by authoritative scope path evidence",
-            matched_assets,
-        )
+        return TargetResourceCandidate(resource.resource_id, resource.locator, ScopeStatus.IN_SCOPE, "TARGET", matched, evidence, "repository path is covered by authoritative scope path evidence", matched_assets)
 
-    return TargetResourceCandidate(
-        resource.resource_id,
-        resource.locator,
-        ScopeStatus.UNKNOWN,
-        "CONTEXT_OR_UNRESOLVED",
-        (),
-        evidence,
-        "no authoritative scope path matched; repository remains unresolved and cannot be promoted by discovery order",
-        (),
-    )
+    return TargetResourceCandidate(resource.resource_id, resource.locator, ScopeStatus.UNKNOWN, "CONTEXT_OR_UNRESOLVED", (), evidence, "no authoritative scope path matched; repository remains unresolved and cannot be promoted by discovery order", ())
 
 
 def _candidate_lineage(locator: str, matched_hint: str) -> str | None:
-    """Return the published GitHub locator prefix ending immediately before a path hint."""
     parsed = urlparse(locator)
     if parsed.hostname not in {"github.com", "www.github.com"}:
         return None
@@ -351,17 +301,7 @@ def _candidate_lineage(locator: str, matched_hint: str) -> str | None:
     return f"{parsed.scheme}://{parsed.netloc}{prefix}"
 
 
-def _infer_missing_asset_candidates(
-    candidates: tuple[TargetResourceCandidate, ...],
-    evidence: ScopeEvidence,
-    unresolved_assets: tuple[ScopeAssetEvidence, ...],
-) -> tuple[TargetResourceCandidate, ...]:
-    """Infer missing monorepo paths only when one unique published repository lineage exists.
-
-    This does not invent a repository. It reuses an already observed repository
-    locator and substitutes only the independently declared authoritative path.
-    The resulting candidate still requires source-identity verification later.
-    """
+def _infer_missing_asset_candidates(candidates: tuple[TargetResourceCandidate, ...], evidence: ScopeEvidence, unresolved_assets: tuple[ScopeAssetEvidence, ...]) -> tuple[TargetResourceCandidate, ...]:
     inferred: list[TargetResourceCandidate] = []
     for asset in unresolved_assets:
         asset_hints = asset.path_hints
@@ -377,35 +317,22 @@ def _infer_missing_asset_candidates(
             continue
 
         lineage, _ = next(iter(lineage_map.items()))
-        template = next(
-            candidate
-            for candidate in candidates
-            if any(_candidate_lineage(candidate.locator, hint) == lineage for hint in candidate.matched_hints)
-        )
-        source_hint = next(
-            hint for hint in template.matched_hints
-            if _candidate_lineage(template.locator, hint) == lineage
-        )
+        template = next(candidate for candidate in candidates if any(_candidate_lineage(candidate.locator, hint) == lineage for hint in candidate.matched_hints))
+        source_hint = next(hint for hint in template.matched_hints if _candidate_lineage(template.locator, hint) == lineage)
         target_hint = asset_hints[0]
         marker = "/" + source_hint.strip("/")
         replacement = "/" + target_hint.strip("/")
         inferred_locator = template.locator.replace(marker, replacement, 1)
-        inferred.append(
-            TargetResourceCandidate(
-                resource_id=canonical_resource_id(ResourceKind.REPOSITORY, inferred_locator),
-                locator=inferred_locator,
-                scope=ScopeStatus.IN_SCOPE,
-                acquisition_role="TARGET_INFERRED_PATH",
-                matched_hints=(target_hint,),
-                evidence=evidence,
-                reason=(
-                    "authoritative asset path was not linked directly; target path was "
-                    "derived from a unique already-observed repository lineage and must "
-                    "be independently verified in the source-identity phase"
-                ),
-                asset_names=(asset.asset_name,),
-            )
-        )
+        inferred.append(TargetResourceCandidate(
+            resource_id=canonical_resource_id(ResourceKind.REPOSITORY, inferred_locator),
+            locator=inferred_locator,
+            scope=ScopeStatus.IN_SCOPE,
+            acquisition_role="TARGET_INFERRED_PATH",
+            matched_hints=(target_hint,),
+            evidence=evidence,
+            reason=("authoritative asset path was not linked directly; target path was derived from a unique already-observed repository lineage and must be independently verified in the source-identity phase"),
+            asset_names=(asset.asset_name,),
+        ))
     return tuple(inferred)
 
 
@@ -420,11 +347,7 @@ def plan_target_acquisition(result: LiveContestAcquisition) -> TargetAcquisition
         raise ValueError("authoritative SCOPE resource has no acquired content")
 
     evidence = extract_scope_evidence(scope_resource, acquired.content)
-    candidates = tuple(
-        classify_repository(resource, evidence)
-        for resource in result.graph
-        if resource.kind is ResourceKind.REPOSITORY
-    )
+    candidates = tuple(classify_repository(resource, evidence) for resource in result.graph if resource.kind is ResourceKind.REPOSITORY)
     matched_assets = {name for candidate in candidates for name in candidate.asset_names}
     unresolved_assets = tuple(asset for asset in evidence.assets if asset.asset_name not in matched_assets)
 
@@ -436,12 +359,4 @@ def plan_target_acquisition(result: LiveContestAcquisition) -> TargetAcquisition
     return TargetAcquisitionPlan(result.contract.program_id, candidates, unresolved, unresolved_assets)
 
 
-__all__ = [
-    "ScopeAssetEvidence",
-    "ScopeEvidence",
-    "TargetAcquisitionPlan",
-    "TargetResourceCandidate",
-    "classify_repository",
-    "extract_scope_evidence",
-    "plan_target_acquisition",
-]
+__all__ = ["ScopeAssetEvidence", "ScopeEvidence", "TargetAcquisitionPlan", "TargetResourceCandidate", "classify_repository", "extract_scope_evidence", "plan_target_acquisition"]
