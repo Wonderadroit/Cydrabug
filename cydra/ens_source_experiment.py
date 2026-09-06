@@ -30,6 +30,7 @@ class ENSObservationExperimentResult:
     call_observations: int
     internally_resolved_call_observations: int
     internal_call_relationships: int
+    call_resolution_matrix: dict[str, int]
     compiler_version: str
 
     def as_dict(self) -> dict[str, object]:
@@ -49,6 +50,7 @@ class ENSObservationExperimentResult:
             "call_observations": self.call_observations,
             "internally_resolved_call_observations": self.internally_resolved_call_observations,
             "internal_call_relationships": self.internal_call_relationships,
+            "call_resolution_matrix": dict(sorted(self.call_resolution_matrix.items())),
             "compiler_version": self.compiler_version,
         }
 
@@ -124,6 +126,14 @@ def run_ens_source_observation_experiment(
         for relationship in observation.relationships
     )
 
+    call_resolution_matrix = Counter()
+    for observation in observations:
+        if observation.kind is not SourceObservationKind.CALL:
+            continue
+        caller = str(observation.attributes.get("caller_relationship_status", "UNKNOWN"))
+        callee = str(observation.attributes.get("callee_relationship_status", "UNKNOWN"))
+        call_resolution_matrix[f"caller={caller};callee={callee}"] += 1
+
     compiler_versions = {
         observation.tool_version
         for observation in observations
@@ -147,6 +157,7 @@ def run_ens_source_observation_experiment(
         call_observations=call_observations,
         internally_resolved_call_observations=internally_resolved_call_observations,
         internal_call_relationships=internal_call_relationships,
+        call_resolution_matrix=dict(call_resolution_matrix),
         compiler_version=compiler_version,
     )
 
