@@ -7,11 +7,11 @@ evidence supplied by acquisition adapters without itself knowing a platform or
 project.
 
 Important distinction:
-    VERIFIED            = the advertised Git object is independently verified.
+    VERIFIED             = the advertised Git object is independently verified.
     PROVENANCE_SUPPORTED = evidence supports the declared lineage, but exact
                            Git identity is not independently proven.
-    MISMATCH            = reliable evidence contradicts the advertised identity.
-    UNRESOLVED          = evidence is insufficient to decide.
+    MISMATCH             = reliable evidence contradicts the advertised identity.
+    UNRESOLVED            = evidence is insufficient to decide.
 
 A declaration such as a commit message is evidence, never cryptographic proof.
 """
@@ -94,12 +94,13 @@ def resolve_source_identity(
 ) -> SourceIdentityResolution:
     """Resolve source identity from evidence without platform-specific rules.
 
-    Exact Git availability is decisive. A candidate whose advertised object is
-    present and whose observed checkout resolves to that object is VERIFIED.
+    Exact Git availability is decisive only when the observed revision itself
+    equals the advertised revision. A repository merely containing some Git
+    object while HEAD points elsewhere cannot be promoted to VERIFIED.
     Declared lineage, ancestry, or content similarity can support provenance,
     but cannot independently promote a candidate to VERIFIED.
     """
-    revision = advertised_revision.strip()
+    revision = advertised_revision.strip().lower()
     if not revision:
         raise ValueError("advertised_revision must not be empty")
 
@@ -116,14 +117,21 @@ def resolve_source_identity(
             ))
             continue
 
-        if candidate.advertised_revision_available:
+        exact_object = candidate.advertised_revision_available
+        observed_matches = candidate.observed_head_matches
+        observed_revision_matches = (
+            candidate.observed_revision is not None
+            and candidate.observed_revision.strip().lower() == revision
+        )
+
+        if exact_object:
             evidence.append(SourceEvidence(
                 EvidenceKind.EXACT_GIT_OBJECT,
                 candidate.locator,
                 f"advertised Git object {revision} is independently available",
                 True,
             ))
-            if candidate.observed_head_matches:
+            if observed_matches and observed_revision_matches:
                 evidence.append(SourceEvidence(
                     EvidenceKind.EXACT_HEAD_MATCH,
                     candidate.locator,
@@ -138,6 +146,13 @@ def resolve_source_identity(
                     evidence=tuple(evidence),
                     reason="exact advertised Git identity independently verified",
                 )
+            if observed_matches and not observed_revision_matches:
+                evidence.append(SourceEvidence(
+                    EvidenceKind.IDENTITY_CONTRADICTION,
+                    candidate.locator,
+                    "candidate reports HEAD matching an identity different from the advertised revision",
+                    False,
+                ))
         else:
             evidence.append(SourceEvidence(
                 EvidenceKind.OBJECT_ABSENT,
