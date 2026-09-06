@@ -49,8 +49,11 @@ class TargetAcquisitionPlan:
         return tuple(c for c in self.candidates if c.scope is ScopeStatus.IN_SCOPE)
 
     @property
-    ready_for_source_identity(self) -> bool:
-        return bool(self.in_scope_candidates) and not self.unresolved_resources
+    def ready_for_source_identity(self) -> bool:
+        # Contextual/unknown repositories are not authority blockers. They are
+        # deliberately preserved as unresolved context while at least one
+        # repository has been positively classified from authoritative scope.
+        return bool(self.in_scope_candidates)
 
 
 def _visible_text(content: str) -> str:
@@ -88,7 +91,8 @@ def _repository_path(locator: str) -> str:
     parts = [part for part in parsed.path.split("/") if part]
     if len(parts) < 2:
         return ""
-    # Pull requests are contextual project material, never source-target paths.
+    # Pull requests/issues/discussions are contextual project material, never
+    # source-target paths.
     if len(parts) >= 4 and parts[2].lower() in {"pull", "issues", "discussions"}:
         return ""
     tail = parts[2:]
