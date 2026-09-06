@@ -1,5 +1,33 @@
 # CYDRA UPDATE LOG
 
+## 2026-09-06 — adaptive-observation-and-human-authorization-doctrine
+
+### Change
+Added the CYDRA doctrine for adaptive observation capability, reusable language/toolchain observers, assistant-assisted interpretation, and concentrated human review/authorization.
+
+### Boundary
+`target ecosystem → toolchain discovery → observation capability gap → observer construction/adaptation → independent validation → reusable observer → CYDRA reasoning`
+
+### Why
+CYDRA must be system-first rather than language-first. A target may use Rust, Solidity, TypeScript/JavaScript, Python, or multiple ecosystems, and different developers may structure the same language very differently. CYDRA therefore needs reusable language/toolchain observers that translate native compiler/toolchain observations into the common evidence and SystemModel layers. The reasoning engine must not be rebuilt for each language or project.
+
+### Architecture doctrine
+- Compilers, parsers, language servers, build tools, and runtimes are observation instruments; they are not the CYDRA reasoning engine.
+- Existing observers should be reusable across projects in the same ecosystem, subject to configuration and capability gaps.
+- A new language/toolchain may require a new observer; a project-specific difference should normally require configuration or an adapter extension rather than a project-specific parser.
+- When an observer is missing, CYDRA should identify the observation capability it needs, investigate the target ecosystem/toolchain, construct or adapt the observer, validate it, and promote it only when the observations are independently checkable.
+- If an LLM or other assistant is available, it may help interpret unfamiliar compiler APIs, documentation, configuration, errors, or implementation options. Assistant output is guidance, not evidence or a security conclusion.
+- CYDRA remains responsible for validation, evidence semantics, uncertainty, reasoning, hypothesis selection, testing, and causal verification.
+
+### Human-assistance doctrine
+CYDRA is intended to minimize continuous human assistance. The human researcher remains the principal authority, while CYDRA performs routine bounded discovery, modeling, reasoning, validation, and recovery. Human attention should be concentrated at consequential boundaries such as active-testing authorization, materially risky external actions, ambiguous/high-impact interpretation, exceptional observer promotion, and final bounty submission/publication.
+
+### Safety semantics
+No compiler/toolchain observation may silently become a security claim. An unavailable or partially validated observer must preserve uncertainty. Human authorization cannot be inferred from public availability or assistant output.
+
+### Resulting capability
+This establishes the intended path toward CYDRA autonomously adapting its observation layer while keeping the core reasoning engine language-agnostic and keeping consequential authority with the human researcher.
+
 ## 2026-09-06 — typescript-javascript-source-coverage
 
 ### Change
