@@ -6,6 +6,7 @@ from cydra.ens_build_identity import (
     ENS_PNPM_LOCK_SHA,
     ENS_PNPM_WORKSPACE_SHA,
     ENS_PNPM_VERSION,
+    ENS_TSGO_VERSION,
 )
 from cydra.ens_build_runner import CANONICAL_COMMANDS, preflight_ens_environment, run_ens_build
 
@@ -43,6 +44,8 @@ def _fake_tools(monkeypatch, head, tree, clean=True, hashes=None):
             Result.stdout = "v22.23.2"
         elif command == ["pnpm", "--version"]:
             Result.stdout = ENS_PNPM_VERSION
+        elif command == ["tsgo", "--version"]:
+            Result.stdout = ENS_TSGO_VERSION
         else:
             Result.stdout = ""
         return Result()
@@ -52,7 +55,11 @@ def _fake_tools(monkeypatch, head, tree, clean=True, hashes=None):
     monkeypatch.setattr("cydra.target_environment.shutil.which", fake_which)
     monkeypatch.setattr(
         "cydra.target_environment._version",
-        lambda executable: "v22.23.2" if executable == "node" else ENS_PNPM_VERSION,
+        lambda executable: {
+            "node": "v22.23.2",
+            "pnpm": ENS_PNPM_VERSION,
+            "tsgo": ENS_TSGO_VERSION,
+        }[executable],
     )
 
 
@@ -68,7 +75,7 @@ def test_preflight_reports_authoritative_ens_tools_without_running_build(monkeyp
     _fake_tools(
         monkeypatch,
         "cda79acaad59711b943fc68207ebb3f1d0ff8596",
-        "8e0d79dac1ab4b4fdb80d6afed810087ae9f00ba",
+        "8e0d79dac1ab4b4fdb80d6afed8100879ae9f00ba",
         hashes=HASHES,
     )
 
@@ -78,6 +85,7 @@ def test_preflight_reports_authoritative_ens_tools_without_running_build(monkeyp
     assert [(c.requirement.name, c.available) for c in report.capabilities] == [
         ("node", True),
         ("pnpm", True),
+        ("tsgo", True),
     ]
 
 
@@ -100,7 +108,7 @@ def test_runner_does_not_execute_contest_commands_when_required_tool_missing(mon
     assert not run.verified
     assert run.commands == ()
     assert not run.environment.ready
-    assert run.environment.missing_required == ("node", "pnpm")
+    assert run.environment.missing_required == ("node", "pnpm", "tsgo")
     assert "EXECUTED" not in calls
 
 
@@ -136,6 +144,7 @@ def test_runner_executes_only_canonical_commands_and_persists_receipt(monkeypatc
     assert run.verified
     assert run.receipt.snapshot_commit == "cda79acaad59711b943fc68207ebb3f1d0ff8596"
     assert (tmp_path / "evidence" / "ens-build.json").is_file()
+    assert run.receipt.tsgo_version == ENS_TSGO_VERSION
 
 
 def test_runner_stops_at_first_failed_canonical_command(monkeypatch, tmp_path):
@@ -143,7 +152,7 @@ def test_runner_stops_at_first_failed_canonical_command(monkeypatch, tmp_path):
     _fake_tools(
         monkeypatch,
         "cda79acaad59711b943fc68207ebb3f1d0ff8596",
-        "8e0d79dac1ab4b4fdb80d6afed810087ae9f00ba",
+        "8e0d79dac1ab4b4fdb80d6afed8100879ae9f00ba",
         hashes=HASHES,
     )
 
