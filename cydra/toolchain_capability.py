@@ -2,15 +2,28 @@
 
 A required executable may be supplied by the target's dependency environment rather
 than the host PATH. Resolution therefore prefers project-local executables before
-falling back to host PATH, while version observation remains read-only. This module
-never installs software and never treats a discovered executable as execution
-authority.
+falling back to host PATH. Capability probing distinguishes absence, launch failure,
+and successful usability without installing or mutating software.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 import shutil
 import subprocess
+
+
+@dataclass(frozen=True)
+class CapabilityProbe:
+    """Read-only observation of one executable capability."""
+
+    name: str
+    executable: str | None
+    state: str
+    observed_version: str | None
+    returncode: int | None
+    diagnostic: str | None
+
 
 
 def _local_candidates(root: Path, name: str) -> tuple[Path, ...]:
@@ -42,11 +55,16 @@ def resolve_executable(root: str | Path, name: str) -> str | None:
     return shutil.which(name)
 
 
-def observe_version(root: str | Path, name: str) -> str | None:
-    """Observe an executable version using target-local resolution first."""
+def probe_executable(root: str | Path, name: str) -> CapabilityProbe:
+    """Probe a resolved executable and preserve the distinction between states.
+
+    ``--version`` is intentionally used as a read-only usability probe. A binary
+    that exists but exits non-zero, panics, or cannot be launched is not reported as
+    missing. Diagnostic output is bounded so capability evidence remains durable.
+    """
     executable = resolve_executable(root, name)
     if executable is None:
-        return None
+        return CapabilityProbe(name, None, "MISSING", None, None, "executable not found")
     try:
         result = subprocess.run(
             [executable, "--version"],
@@ -56,7 +74,25 @@ def observe_version(root: str | Path, name: str) -> str | None:
             timeout=15,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    text = (result.stdout or result.stderr).strip()
-    return text.splitlines()[0][:500] if result.returncode == 0 and text else None
+    except subprocess.TimeoutExpired as exc:
+        return CapabilityProbe(name, executable, "UNUSABLE", None, 124, f"version probe timed out: {exc}")
+    except OSError as exc:
+        return CapabilityProbe(name, executable, "UNUSABLE", None, 127, f"version probe could not launch: {exc}")
+    stdout = (result.stdout or "").strip()
+    stderr = (result.stderr or "").strip()
+    diagnostic = (stderr or stdout or None)
+    if result.returncode != 0:
+        return CapabilityProbe(name, executable, "UNUSABLE", None, result.returncode, diagnostic[:1000] if diagnostic else "version probe failed")
+    version = stdout.splitlines()[0][:500] if stdout else None
+    if not version:
+        return CapabilityProbe(name, executable, "UNUSABLE", None, result.returncode, "version probe produced no version")
+    return CapabilityProbe(name, executable, "USABLE", version, result.returncode, None)
+
+
+def observe_version(root: str | Path, name: str) -> str | None:
+    """Backward-compatible version observation using target-local resolution first."""
+    probe = probe_executable(root, name)
+    return probe.observed_version if probe.state == "USABLE" else None
+
+
+__all__ = ["CapabilityProbe", "observe_version", "probe_executable", "resolve_executable"]
