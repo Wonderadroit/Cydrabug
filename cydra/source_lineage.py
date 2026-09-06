@@ -1,20 +1,4 @@
-"""Project-agnostic source identity and lineage reasoning.
-
-CYDRA must not assume that a program's advertised Git revision is directly
-fetchable from the first repository it discovers. Programs may publish forks,
-snapshots, mirrors, tags, or other source locators. This module evaluates the
-evidence supplied by acquisition adapters without itself knowing a platform or
-project.
-
-Important distinction:
-    VERIFIED             = the advertised Git object is independently verified.
-    PROVENANCE_SUPPORTED = evidence supports the declared lineage, but exact
-                           Git identity is not independently proven.
-    MISMATCH             = reliable evidence contradicts the advertised identity.
-    UNRESOLVED            = evidence is insufficient to decide.
-
-A declaration such as a commit message is evidence, never cryptographic proof.
-"""
+"""Project-agnostic source identity and lineage reasoning."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -40,24 +24,18 @@ class EvidenceKind(str, Enum):
 
 @dataclass(frozen=True)
 class SourceEvidence:
-    """One independently collected fact about a source candidate."""
-
     kind: EvidenceKind
     source: str
     detail: str
     supports: bool
 
     def __post_init__(self) -> None:
-        if not self.source.strip():
-            raise ValueError("source must not be empty")
-        if not self.detail.strip():
-            raise ValueError("detail must not be empty")
+        if not self.source.strip() or not self.detail.strip():
+            raise ValueError("source and detail must not be empty")
 
 
 @dataclass(frozen=True)
 class SourceCandidate:
-    """A discovered source candidate and its observed Git identity."""
-
     locator: str
     observed_revision: str | None = None
     advertised_revision_available: bool = False
@@ -74,8 +52,6 @@ class SourceCandidate:
 
 @dataclass(frozen=True)
 class SourceIdentityResolution:
-    """Fail-closed judgment over one or more source candidates."""
-
     advertised_revision: str
     status: LineageStatus
     selected_locator: str | None
@@ -92,17 +68,10 @@ def resolve_source_identity(
     advertised_revision: str,
     candidates: tuple[SourceCandidate, ...] | list[SourceCandidate],
 ) -> SourceIdentityResolution:
-    """Resolve source identity from evidence without platform-specific rules.
-
-    Exact Git availability is decisive only when the observed revision itself
-    equals the advertised revision. A repository merely containing some Git
-    object while HEAD points elsewhere cannot be promoted to VERIFIED.
-    Declared lineage, ancestry, or content similarity can support provenance,
-    but cannot independently promote a candidate to VERIFIED.
-    """
+    """Resolve authoritative source identity from independently supplied evidence."""
     revision = advertised_revision.strip().lower()
-    if not revision:
-        raise ValueError("advertised_revision must not be empty")
+    if len(revision) != 40 or any(char not in "0123456789abcdef" for char in revision):
+        raise ValueError("advertised_revision must be a full 40-character Git SHA")
 
     candidates = tuple(candidates)
     evidence: list[SourceEvidence] = []
@@ -118,11 +87,11 @@ def resolve_source_identity(
             continue
 
         exact_object = candidate.advertised_revision_available
-        observed_matches = candidate.observed_head_matches
         observed_revision_matches = (
             candidate.observed_revision is not None
             and candidate.observed_revision.strip().lower() == revision
         )
+        exact_head = candidate.observed_head_matches and observed_revision_matches
 
         if exact_object:
             evidence.append(SourceEvidence(
@@ -131,28 +100,6 @@ def resolve_source_identity(
                 f"advertised Git object {revision} is independently available",
                 True,
             ))
-            if observed_matches and observed_revision_matches:
-                evidence.append(SourceEvidence(
-                    EvidenceKind.EXACT_HEAD_MATCH,
-                    candidate.locator,
-                    "observed checkout HEAD exactly matches the advertised revision",
-                    True,
-                ))
-                return SourceIdentityResolution(
-                    advertised_revision=revision,
-                    status=LineageStatus.VERIFIED,
-                    selected_locator=candidate.locator,
-                    exact_identity_verified=True,
-                    evidence=tuple(evidence),
-                    reason="exact advertised Git identity independently verified",
-                )
-            if observed_matches and not observed_revision_matches:
-                evidence.append(SourceEvidence(
-                    EvidenceKind.IDENTITY_CONTRADICTION,
-                    candidate.locator,
-                    "candidate reports HEAD matching an identity different from the advertised revision",
-                    False,
-                ))
         else:
             evidence.append(SourceEvidence(
                 EvidenceKind.OBJECT_ABSENT,
@@ -161,73 +108,60 @@ def resolve_source_identity(
                 False,
             ))
 
+        if candidate.observed_head_matches:
+            evidence.append(SourceEvidence(
+                EvidenceKind.EXACT_HEAD_MATCH,
+                candidate.locator,
+                "candidate reports an exact HEAD match; observed revision equality is checked independently",
+                exact_head,
+            ))
+
+        if exact_object and exact_head:
+            return SourceIdentityResolution(
+                revision, LineageStatus.VERIFIED, candidate.locator, True,
+                tuple(evidence), "exact advertised Git identity independently verified",
+            )
+
         if candidate.declared_lineage:
             evidence.append(SourceEvidence(
-                EvidenceKind.DECLARED_LINEAGE,
-                candidate.locator,
-                "candidate explicitly declares lineage to the advertised revision",
-                True,
+                EvidenceKind.DECLARED_LINEAGE, candidate.locator,
+                "candidate explicitly declares lineage to the advertised revision", True,
             ))
         if candidate.lineage_to_advertised:
             evidence.append(SourceEvidence(
-                EvidenceKind.ANCESTRY_RELATION,
-                candidate.locator,
-                "independent evidence indicates a lineage relation to the advertised revision",
-                True,
+                EvidenceKind.ANCESTRY_RELATION, candidate.locator,
+                "independent evidence indicates lineage to the advertised revision", True,
             ))
         if candidate.content_matches:
             evidence.append(SourceEvidence(
-                EvidenceKind.CONTENT_MATCH,
-                candidate.locator,
-                "candidate content matches the supplied identity evidence",
-                True,
+                EvidenceKind.CONTENT_MATCH, candidate.locator,
+                "candidate content matches supplied identity evidence", True,
             ))
 
-    provenance_candidates = [
+    provenance = [
         c for c in candidates
-        if not c.contradictory_identity
-        and (c.declared_lineage or c.lineage_to_advertised)
+        if not c.contradictory_identity and (c.declared_lineage or c.lineage_to_advertised)
     ]
-    if provenance_candidates:
-        selected = provenance_candidates[0]
+    if provenance:
         return SourceIdentityResolution(
-            advertised_revision=revision,
-            status=LineageStatus.PROVENANCE_SUPPORTED,
-            selected_locator=selected.locator,
-            exact_identity_verified=False,
-            evidence=tuple(evidence),
-            reason=(
-                "source lineage is supported by provenance evidence, but the "
-                "advertised Git identity is not independently verified"
-            ),
+            revision, LineageStatus.PROVENANCE_SUPPORTED, provenance[0].locator, False,
+            tuple(evidence),
+            "source lineage is supported, but exact advertised Git identity is not independently verified",
         )
 
-    contradictions = [c for c in candidates if c.contradictory_identity]
-    if contradictions and candidates and all(c.contradictory_identity for c in candidates):
+    if candidates and all(c.contradictory_identity for c in candidates):
         return SourceIdentityResolution(
-            advertised_revision=revision,
-            status=LineageStatus.MISMATCH,
-            selected_locator=None,
-            exact_identity_verified=False,
-            evidence=tuple(evidence),
-            reason="all discovered source candidates contradict the advertised identity",
+            revision, LineageStatus.MISMATCH, None, False, tuple(evidence),
+            "all discovered source candidates contradict the advertised identity",
         )
 
     return SourceIdentityResolution(
-        advertised_revision=revision,
-        status=LineageStatus.UNRESOLVED,
-        selected_locator=None,
-        exact_identity_verified=False,
-        evidence=tuple(evidence),
-        reason="insufficient evidence to resolve the authoritative source identity",
+        revision, LineageStatus.UNRESOLVED, None, False, tuple(evidence),
+        "insufficient evidence to resolve the authoritative source identity",
     )
 
 
 __all__ = [
-    "EvidenceKind",
-    "LineageStatus",
-    "SourceCandidate",
-    "SourceEvidence",
-    "SourceIdentityResolution",
-    "resolve_source_identity",
+    "EvidenceKind", "LineageStatus", "SourceCandidate", "SourceEvidence",
+    "SourceIdentityResolution", "resolve_source_identity",
 ]
