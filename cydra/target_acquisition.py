@@ -196,6 +196,7 @@ def _asset_matches_hint(asset: ScopeAssetEvidence | str, hint: str) -> bool:
     path_tokens = _meaningful_tokens(hint)
     if asset_tokens == path_tokens:
         return True
+
     aliases = {"explorer": {"portal"}, "worker": {"workers", "worker"}}
     expanded_asset = set(asset_tokens)
     expanded_path = set(path_tokens)
@@ -203,7 +204,21 @@ def _asset_matches_hint(asset: ScopeAssetEvidence | str, hint: str) -> bool:
         expanded_asset.update(aliases.get(token, set()))
     for token in tuple(expanded_path):
         expanded_path.update(aliases.get(token, set()))
-    return expanded_asset == expanded_path
+    if expanded_asset == expanded_path:
+        return True
+
+    # A plural category asset may name a compound path whose leaf contains
+    # that category's singular identity (for example, workers -> api-worker).
+    # Do not permit arbitrary single-token overlap, which would make manager
+    # incorrectly bind to transaction-manager.
+    if len(asset_tokens) == 1:
+        asset_token = next(iter(asset_tokens))
+        if asset_token.endswith("s") and len(asset_token) > 1:
+            singular = asset_token[:-1]
+            leaf_tokens = _meaningful_tokens(hint.rsplit("/", 1)[-1])
+            if singular in leaf_tokens:
+                return True
+    return False
 
 
 def _asset_path_associations(content: str, assets: tuple[str, ...], hints: tuple[str, ...]) -> dict[str, tuple[str, ...]]:
