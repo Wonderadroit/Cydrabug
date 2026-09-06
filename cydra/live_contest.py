@@ -7,6 +7,7 @@ program-intake record suitable for the later target/source/build gates.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import html
 import json
 from pathlib import Path
 from typing import Sequence
@@ -34,13 +35,18 @@ def _extract_revision_assertion(content: str) -> str | None:
     Generic 40-hex tokens are not sufficient evidence: program pages commonly
     contain unrelated commit hashes in links, documentation, or embedded data.
     The source-identity boundary must receive a semantically bound assertion.
+
+    Program pages are acquired as HTML, so markup may occur between the
+    semantic label and its value (for example ``commit hash: <code>...</code>``).
+    Normalize markup/entities before applying the semantic extraction rule.
     """
+    normalized = html.unescape(re.sub(r"<[^>]*>", " ", content))
     patterns = (
         r"(?is)audited\s+revision\s*(?:[—–:-]|\s)*\s*(?:commit\s+hash\s*)?`?\s*([0-9a-f]{40})\b",
         r"(?is)audited\s+revision[^0-9a-f]{0,80}([0-9a-f]{40})\b",
     )
     for pattern in patterns:
-        match = re.search(pattern, content)
+        match = re.search(pattern, normalized)
         if match:
             return match.group(1).lower()
     return None
