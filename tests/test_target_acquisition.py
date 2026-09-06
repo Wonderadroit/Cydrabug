@@ -135,10 +135,12 @@ def test_repository_is_target_only_when_authoritative_scope_path_matches():
 
 def test_all_authoritative_assets_must_be_resolved_before_source_identity():
     scope_locator = "https://immunefi.com/audit-competition/example/scope/"
-    target_locator = "https://github.com/example/project/tree/rev/apps/manager"
+    first_target_locator = "https://github.com/example/project/tree/rev/apps/manager"
+    second_target_locator = "https://github.com/example/fork/tree/rev/apps/manager"
     dependency_locator = "https://github.com/example/ensjs/pull/230"
     scope = _resource(ResourceKind.SCOPE, scope_locator)
-    target = _resource(ResourceKind.REPOSITORY, target_locator)
+    first_target = _resource(ResourceKind.REPOSITORY, first_target_locator)
+    second_target = _resource(ResourceKind.REPOSITORY, second_target_locator)
     dependency = _resource(ResourceKind.REPOSITORY, dependency_locator)
     acquired_scope = AcquiredResource(
         scope_locator,
@@ -152,13 +154,19 @@ def test_all_authoritative_assets_must_be_resolved_before_source_identity():
         """,
         "fixture",
     )
-    contract = ProgramContract("example", "immunefi", "Example", scope.resource_id, (scope, target, dependency))
+    contract = ProgramContract(
+        "example",
+        "immunefi",
+        "Example",
+        scope.resource_id,
+        (scope, first_target, second_target, dependency),
+    )
     result = LiveContestAcquisition(
         "https://immunefi.com/audit-competition/example/information/",
         contract,
         (acquired_scope,),
         (),
-        (scope, target, dependency),
+        (scope, first_target, second_target, dependency),
     )
 
     plan = plan_target_acquisition(result)
