@@ -1,5 +1,32 @@
 # CYDRA UPDATE LOG
 
+## 2026-09-06 — typescript-workspace-resolution
+
+### Change
+Corrected TypeScript compiler resolution for the ENS monorepo experiment so the observer resolves the compiler from the workspace package owning the supplied source file rather than assuming the repository root exposes `typescript`.
+
+### Boundary
+`acquired source file → owning workspace package → declared compiler capability → compiler observations → normalized SystemModel`
+
+### Why
+The live ENS experiment proved that `typescript@6.0.3` is installed and usable through the `manager` and `portal` workspace contexts, while root-level `require("typescript")` fails. CYDRA must follow the target's actual workspace dependency semantics instead of altering the target or substituting an unrelated compiler path.
+
+### Implementation
+- Updated `cydra/typescript_observer.cjs` to locate the nearest owning `package.json` from each supplied source path.
+- Resolves `typescript` through `Module.createRequire()` anchored to that workspace package.
+- Keeps the compiler-backed observation contract unchanged.
+- Retains the existing fail-closed behavior when the owning workspace cannot provide the required compiler API.
+- Does not install or modify target dependencies.
+
+### Safety semantics
+The resolver follows declared target workspace dependencies; it does not infer compiler availability from pnpm's internal store layout. `@typescript/native-preview`/`tsgo` remains a separate capability and is not substituted for the classic TypeScript Compiler API.
+
+### Live-contest exercise
+ENS manager and portal both resolve `tsc` 6.0.3 through their workspace contexts. The next runtime measurement must verify that the compiler observer now produces observations across the frozen 1,746-file inventory.
+
+### Validation status
+The target-environment diagnostic established the workspace resolution fact. The workspace-aware observer change is committed on `live-immunefi-work`. Full 1,746-file runtime measurement is still required before claiming coverage. ENS exact audited-source identity remains unresolved, so this remains source reconstruction work only.
+
 ## 2026-09-05 — ens-source-observation-experiment
 
 ### Change
