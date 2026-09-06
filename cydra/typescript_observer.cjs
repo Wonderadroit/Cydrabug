@@ -61,6 +61,33 @@ function compilerOptions() {
 
 const options = compilerOptions();
 
+function compilerHost() {
+  const host = ts.createCompilerHost(options, true);
+  const originalGetSourceFile = host.getSourceFile.bind(host);
+  host.readFile = (fileName) => {
+    const absolute = path.resolve(fileName);
+    return supplied.has(absolute) ? supplied.get(absolute) : ts.sys.readFile(fileName);
+  };
+  host.fileExists = (fileName) => {
+    const absolute = path.resolve(fileName);
+    return supplied.has(absolute) || ts.sys.fileExists(fileName);
+  };
+  host.getSourceFile = (fileName, languageVersion, onError, shouldCreateNewSourceFile, scriptKind) => {
+    const absolute = path.resolve(fileName);
+    if (supplied.has(absolute)) {
+      return ts.createSourceFile(
+        absolute,
+        supplied.get(absolute),
+        languageVersion,
+        true,
+        scriptKind ?? scriptKindFor(absolute),
+      );
+    }
+    return originalGetSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile, scriptKind);
+  };
+  return host;
+}
+
 function resolveImport(specifier, containingFile) {
   const resolved = ts.resolveModuleName(specifier, containingFile, options, {
     ...ts.sys,
@@ -97,15 +124,77 @@ function scriptKindFor(filePath) {
   }
 }
 
+function symbolIdentity(checker, symbol) {
+  if (!symbol) return null;
+  const declarations = symbol.declarations || [];
+  const declaration = declarations[0];
+  const declarationFile = declaration?.getSourceFile()?.fileName;
+  const qualified = checker.getFullyQualifiedName(symbol);
+  return {
+    qualified_name: qualified,
+    declaration_path: declarationFile ? path.resolve(declarationFile) : null,
+  };
+}
+
+function symbolForLocation(checker, node) {
+  let symbol = checker.getSymbolAtLocation(node);
+  if (symbol && symbol.flags & ts.SymbolFlags.Alias) {
+    const aliased = checker.getAliasedSymbol(symbol);
+    if (aliased && aliased !== symbol) symbol = aliased;
+  }
+  return symbolIdentity(checker, symbol);
+}
+
+function enclosingFunction(node) {
+  let current = node.parent;
+  while (current) {
+    if (
+      ts.isFunctionDeclaration(current) ||
+      ts.isMethodDeclaration(current) ||
+      ts.isFunctionExpression(current) ||
+      ts.isArrowFunction(current) ||
+      ts.isGetAccessorDeclaration(current) ||
+      ts.isSetAccessorDeclaration(current) ||
+      ts.isConstructorDeclaration(current)
+    ) {
+      return current;
+    }
+    current = current.parent;
+  }
+  return null;
+}
+
+function functionSymbol(checker, node) {
+  if (!node) return null;
+  const name = node.name;
+  if (name) return symbolForLocation(checker, name);
+  const symbol = checker.getSymbolAtLocation(node);
+  return symbolIdentity(checker, symbol);
+}
+
+const programRootNames = input.files.map((item) => path.resolve(targetRoot, item.path));
+const program = ts.createProgram(programRootNames, options, compilerHost());
+const checker = program.getTypeChecker();
+
 function visit(node) {
   const push = (kind, name, attributes = {}) => {
     result.push({ path: node.getSourceFile().fileName, kind, name, line: lineOf(node), attributes });
   };
 
   if (ts.isFunctionDeclaration(node) && node.name) {
-    push("function", node.name.text, { async: !!node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword), exported: hasExport(node) });
+    const symbol = functionSymbol(checker, node);
+    push("function", node.name.text, {
+      async: !!node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword),
+      exported: hasExport(node),
+      symbol_identity: symbol,
+    });
   } else if (ts.isMethodDeclaration(node) && node.name) {
-    push("function", node.name.getText(), { method: true, exported: hasExport(node) });
+    const symbol = functionSymbol(checker, node);
+    push("function", node.name.getText(), {
+      method: true,
+      exported: hasExport(node),
+      symbol_identity: symbol,
+    });
   } else if (ts.isClassDeclaration(node) && node.name) {
     push("class", node.name.text, { exported: hasExport(node) });
   } else if (ts.isInterfaceDeclaration(node)) {
@@ -128,7 +217,16 @@ function visit(node) {
       resolution_status: module ? (resolved ? "RESOLVED" : "UNRESOLVED") : "DECLARATION",
     });
   } else if (ts.isCallExpression(node)) {
-    push("call", node.expression.getText(), { expression: node.expression.getText() });
+    const caller = enclosingFunction(node);
+    const callerSymbol = functionSymbol(checker, caller);
+    const calleeSymbol = symbolForLocation(checker, node.expression);
+    push("call", node.expression.getText(), {
+      expression: node.expression.getText(),
+      caller_symbol_identity: callerSymbol,
+      callee_symbol_identity: calleeSymbol,
+      caller_resolution_status: callerSymbol ? "RESOLVED" : "UNRESOLVED",
+      callee_resolution_status: calleeSymbol ? "RESOLVED" : "UNRESOLVED",
+    });
   }
 
   ts.forEachChild(node, visit);
@@ -136,7 +234,7 @@ function visit(node) {
 
 for (const item of input.files) {
   const absolutePath = path.resolve(targetRoot, item.path);
-  const sourceFile = ts.createSourceFile(
+  const sourceFile = program.getSourceFile(absolutePath) || ts.createSourceFile(
     absolutePath,
     item.source,
     ts.ScriptTarget.Latest,
