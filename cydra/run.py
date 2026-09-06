@@ -54,6 +54,11 @@ def run_phase_one(
     plan = plan_target_acquisition(result)
     if not plan.in_scope_candidates:
         raise RunBlocked("target/resource acquisition found no repository covered by authoritative scope evidence")
+    if plan.unresolved_assets:
+        names = ", ".join(asset.asset_name for asset in plan.unresolved_assets)
+        raise RunBlocked(
+            "authoritative scope assets remain unresolved: " + names
+        )
     return plan
 
 
@@ -86,7 +91,9 @@ def _main(argv: Sequence[str] | None = None) -> int:
             print(f"in-scope target candidates: {len(plan.in_scope_candidates)}")
             print(f"unresolved resources: {len(plan.unresolved_resources)}")
             for candidate in plan.in_scope_candidates:
+                assets = ", ".join(candidate.asset_names) or "unlabeled authoritative asset"
                 print(f"target: {candidate.locator}")
+                print(f"asset: {assets}")
                 print(f"scope evidence: {', '.join(candidate.matched_hints)}")
             print("next phase: source identity")
             print(f"phase-0 receipt: {Path(args.receipt).resolve()}")
