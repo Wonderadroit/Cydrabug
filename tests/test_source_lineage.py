@@ -30,6 +30,42 @@ def test_exact_git_identity_is_verified():
     assert EvidenceKind.EXACT_HEAD_MATCH in {e.kind for e in result.evidence}
 
 
+def test_object_presence_alone_is_not_verified():
+    result = resolve_source_identity(
+        REVISION,
+        (
+            SourceCandidate(
+                locator="https://example.invalid/project.git",
+                observed_revision="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                advertised_revision_available=True,
+                observed_head_matches=False,
+            ),
+        ),
+    )
+
+    assert result.status is LineageStatus.UNRESOLVED
+    assert result.ready_for_analysis is False
+    assert result.exact_identity_verified is False
+
+
+def test_head_match_flag_with_wrong_revision_is_not_verified():
+    result = resolve_source_identity(
+        REVISION,
+        (
+            SourceCandidate(
+                locator="https://example.invalid/project.git",
+                observed_revision="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                advertised_revision_available=True,
+                observed_head_matches=True,
+            ),
+        ),
+    )
+
+    assert result.status is LineageStatus.UNRESOLVED
+    assert result.ready_for_analysis is False
+    assert EvidenceKind.IDENTITY_CONTRADICTION in {e.kind for e in result.evidence}
+
+
 def test_declared_fork_lineage_does_not_become_verified():
     result = resolve_source_identity(
         REVISION,
