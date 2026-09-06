@@ -38,6 +38,33 @@ def test_scope_path_hints_are_authoritative_and_conservative():
     assert "workers/api-worker" in evidence.path_hints
 
 
+def test_authoritative_asset_identity_is_preserved_separately_from_paths():
+    scope = _resource(ResourceKind.SCOPE, "https://immunefi.com/audit-competition/example/scope/")
+    evidence = extract_scope_evidence(
+        scope,
+        """
+        <table>
+          <tr><th>Target</th><th>Name</th><th>Added on</th></tr>
+          <tr><td></td><td>Manager app Files</td><td>6 August 2026</td></tr>
+          <tr><td></td><td>Explorer app Files</td><td>6 August 2026</td></tr>
+          <tr><td></td><td>Workers</td><td>13 August 2026</td></tr>
+          <tr><td></td><td>Transaction-manager</td><td>13 August 2026</td></tr>
+          <tr><td></td><td>Smart-account</td><td>13 August 2026</td></tr>
+        </table>
+        Applies to: apps/manager (Manager app), apps/portal (Explorer app),
+        packages/smart-account, packages/transaction-manager, workers/api-worker
+        """,
+    )
+    assert {asset.asset_name for asset in evidence.assets} == {
+        "Manager app Files",
+        "Explorer app Files",
+        "Workers",
+        "Transaction-manager",
+        "Smart-account",
+    }
+    assert "workers/api-worker" in evidence.path_hints
+
+
 def test_repository_is_target_only_when_authoritative_scope_path_matches():
     scope = _resource(ResourceKind.SCOPE, "https://immunefi.com/audit-competition/example/scope/")
     evidence = extract_scope_evidence(scope, "In scope: apps/manager")
@@ -63,6 +90,39 @@ def test_repository_is_target_only_when_authoritative_scope_path_matches():
     assert target_candidate.acquisition_role == "TARGET"
     assert dependency_candidate.scope.value == "UNKNOWN"
     assert unrelated_candidate.scope.value == "UNKNOWN"
+
+
+def test_all_authoritative_assets_must_be_resolved_before_source_identity():
+    scope_locator = "https://immunefi.com/audit-competition/example/scope/"
+    target_locator = "https://github.com/example/project/tree/rev/apps/manager"
+    dependency_locator = "https://github.com/example/ensjs/pull/230"
+    scope = _resource(ResourceKind.SCOPE, scope_locator)
+    target = _resource(ResourceKind.REPOSITORY, target_locator)
+    dependency = _resource(ResourceKind.REPOSITORY, dependency_locator)
+    acquired_scope = AcquiredResource(
+        scope_locator,
+        """
+        <table>
+          <tr><th>Target</th><th>Name</th><th>Added on</th></tr>
+          <tr><td></td><td>Manager app Files</td><td>6 August 2026</td></tr>
+          <tr><td></td><td>Workers</td><td>13 August 2026</td></tr>
+        </table>
+        In scope: apps/manager workers/api-worker
+        """,
+        "fixture",
+    )
+    contract = ProgramContract("example", "immunefi", "Example", scope.resource_id, (scope, target, dependency))
+    result = LiveContestAcquisition(
+        "https://immunefi.com/audit-competition/example/information/",
+        contract,
+        (acquired_scope,),
+        (),
+        (scope, target, dependency),
+    )
+
+    plan = plan_target_acquisition(result)
+    assert plan.ready_for_source_identity is False
+    assert any(asset.asset_name == "Workers" for asset in plan.unresolved_assets)
 
 
 def test_discovery_order_cannot_change_target_classification():
