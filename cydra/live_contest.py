@@ -29,22 +29,20 @@ from .program_intake import (
 
 
 def _extract_revision_assertion(content: str) -> str | None:
-    """Extract a 40-hex Git revision asserted by acquired program material.
+    """Extract only a revision explicitly labelled as the audited revision.
 
-    This is evidence extraction only. A matching Git object must be verified
-    independently by the source-identity layer.
+    Generic 40-hex tokens are not sufficient evidence: program pages commonly
+    contain unrelated commit hashes in links, documentation, or embedded data.
+    The source-identity boundary must receive a semantically bound assertion.
     """
     patterns = (
-        r"(?i)(?:audited|audit(?:ed)?\s+revision|commit|revision)[^0-9a-f]{0,80}"
-        r"([0-9a-f]{40})",
-        r"(?<![0-9a-f])([0-9a-f]{40})(?![0-9a-f])",
+        r"(?is)audited\s+revision\s*(?:[—–:-]|\s)*\s*(?:commit\s+hash\s*)?`?\s*([0-9a-f]{40})\b",
+        r"(?is)audited\s+revision[^0-9a-f]{0,80}([0-9a-f]{40})\b",
     )
-
     for pattern in patterns:
         match = re.search(pattern, content)
         if match:
             return match.group(1).lower()
-
     return None
 
 
@@ -201,13 +199,6 @@ def acquire_live_contest(
         if advertised_revision is not None:
             break
 
-    # Do not infer source identity from discovery order or from the generic
-    # ResourceKind.REPOSITORY classification. At this phase, a repository can
-    # be a target, dependency, documentation project, audit material, or a PR
-    # referenced by the authoritative pages. None of those roles is established
-    # merely by being discovered first. The target/source-identity phase must
-    # classify the repository from authoritative scope/provenance evidence and
-    # independently verify the resulting revision/build identity.
     identity_evidence = AcquisitionIdentityEvidence(
         repository_locator=None,
         advertised_revision=advertised_revision,
@@ -242,20 +233,13 @@ def _main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Passively acquire a live Immunefi contest contract and resource graph."
     )
-    parser.add_argument(
-        "locator",
-        help="canonical Immunefi information/scope/resources URL",
-    )
+    parser.add_argument("locator", help="canonical Immunefi information/scope/resources URL")
     parser.add_argument("--receipt", default="evidence/live-contest.json")
     parser.add_argument("--max-depth", type=int, default=2)
     args = parser.parse_args(argv)
 
     try:
-        result = acquire_live_contest(
-            args.locator,
-            max_depth=args.max_depth,
-            receipt_path=args.receipt,
-        )
+        result = acquire_live_contest(args.locator, max_depth=args.max_depth, receipt_path=args.receipt)
     except Exception as exc:
         print(f"LIVE CONTEST ACQUISITION: ERROR: {exc}")
         return 2
