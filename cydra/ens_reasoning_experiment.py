@@ -1,9 +1,4 @@
-"""Run CYDRA's security-reasoning experiment over an accepted ENS build.
-
-This is deliberately a measurement harness, not a new reasoning layer. It
-reports the existing candidate -> competing-hypothesis -> information-gain
-pipeline so the first live-contest experiment can be inspected empirically.
-"""
+"""Measure CYDRA's existing security-reasoning pipeline over ENS evidence."""
 from __future__ import annotations
 
 import argparse
@@ -12,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .foundry_reasoning import discover_foundry_invariant_candidates
-from .foundry_build_info import accept_foundry_build_info
+from .foundry_build_info import AcceptedFoundryBuild
 from .system_model import SystemModel
 
 
@@ -47,25 +42,38 @@ def _observation_record(observation: Any) -> dict[str, Any]:
     }
 
 
-def run_experiment(build_info_path: str | Path) -> dict[str, Any]:
-    """Accept a trusted build-info report and measure existing CYDRA reasoning."""
-    path = Path(build_info_path).resolve()
+def _accepted_build_from_json(payload: dict[str, Any]) -> AcceptedFoundryBuild:
+    """Rehydrate an AcceptedFoundryBuild without weakening its trust boundary."""
+    if not isinstance(payload, dict):
+        raise TypeError("build-info evidence must be a JSON object")
+    try:
+        return AcceptedFoundryBuild(**payload)
+    except TypeError as exc:
+        raise ValueError(
+            "the supplied JSON is not a serialized AcceptedFoundryBuild; "
+            "run the existing Foundry build-info acceptance pipeline first"
+        ) from exc
+
+
+def run_experiment(build_path: str | Path) -> dict[str, Any]:
+    """Run the existing reasoning chain against a previously accepted build."""
+    path = Path(build_path).resolve()
     payload = json.loads(path.read_text(encoding="utf-8"))
-    build = accept_foundry_build_info(payload)
+    build = _accepted_build_from_json(payload)
     model = SystemModel()
     result = discover_foundry_invariant_candidates(model, build)
 
-    candidate_categories: dict[str, int] = {}
+    categories: dict[str, int] = {}
     for candidate in result.candidates:
         category = str(candidate.metadata.get("category", "unknown"))
-        candidate_categories[category] = candidate_categories.get(category, 0) + 1
+        categories[category] = categories.get(category, 0) + 1
 
     return {
         "build": {
-            "revision": build.revision,
-            "build_info_sha256": build.build_info_sha256,
-            "compiler_version": build.compiler_version,
-            "source_count": len(build.sources),
+            "revision": getattr(build, "revision", ""),
+            "build_info_sha256": getattr(build, "build_info_sha256", ""),
+            "compiler_version": getattr(build, "compiler_version", ""),
+            "source_count": len(getattr(build, "sources", {})),
         },
         "system_model": {
             "nodes": len(model.nodes),
@@ -74,7 +82,7 @@ def run_experiment(build_info_path: str | Path) -> dict[str, Any]:
         },
         "candidates": {
             "total": len(result.candidates),
-            "categories": candidate_categories,
+            "categories": categories,
             "items": [_candidate_record(item) for item in result.candidates],
         },
         "hypotheses": {
@@ -97,17 +105,15 @@ def run_experiment(build_info_path: str | Path) -> dict[str, Any]:
 
 
 def _main() -> int:
-    parser = argparse.ArgumentParser(description="Measure CYDRA reasoning over an accepted Foundry build-info report.")
-    parser.add_argument("build_info", help="accepted Foundry build-info evidence JSON")
+    parser = argparse.ArgumentParser(description="Measure CYDRA reasoning over accepted Foundry evidence.")
+    parser.add_argument("build", help="serialized AcceptedFoundryBuild JSON")
     parser.add_argument("--output", help="optional JSON report path")
     args = parser.parse_args()
-
     try:
-        report = run_experiment(args.build_info)
+        report = run_experiment(args.build)
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         print(f"ENS REASONING EXPERIMENT: ERROR: {exc}")
         return 2
-
     text = json.dumps(report, indent=2, sort_keys=True)
     if args.output:
         Path(args.output).write_text(text + "\n", encoding="utf-8")
