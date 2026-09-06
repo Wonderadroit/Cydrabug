@@ -2,9 +2,12 @@
 
 The runner executes only the commands published by the ENS contest build
 instructions, records independently observed identity/toolchain/hash data, and
-serializes the resulting evidence without modifying the target checkout.
+serializes the resulting evidence without modifying source files directly.
 
-It is intentionally not a generic command runner and does not install tools.
+Dependency materialization is staged through the generic target-environment
+capability boundary: bootstrap tools are verified first, the target-declared
+frozen install is then executed, and materialized tools such as tsgo are verified
+before the remaining canonical validation commands run.
 """
 from __future__ import annotations
 
@@ -26,7 +29,12 @@ from .ens_build_identity import (
 from .ens_build_receipt import ENSBuildReceipt, build_receipt_from_observations
 from .ens_environment import authoritative_requirements
 from .ens_target import AUDITED_REVISION, DEFAULT_REVISION
-from .target_environment import TargetEnvironmentReport, verify_requirements
+from .target_environment import (
+    EnvironmentPreparation,
+    TargetEnvironmentReport,
+    prepare_target_environment,
+    verify_requirements,
+)
 
 
 CANONICAL_COMMANDS: tuple[tuple[str, ...], ...] = (
@@ -45,6 +53,8 @@ CANONICAL_COMMANDS: tuple[tuple[str, ...], ...] = (
 # runner must report the capability boundary rather than silently pretending it ran.
 REQUIRED_COMMAND_NAMES = frozenset(" ".join(c) for c in CANONICAL_COMMANDS)
 BUILD_INPUTS = ("package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc")
+BOOTSTRAP_TOOLS = frozenset(("node", "pnpm"))
+MATERIALIZATION_COMMAND = ("pnpm", "install", "--frozen-lockfile")
 
 
 @dataclass(frozen=True)
@@ -62,6 +72,7 @@ class ENSBuildRun:
     observed_tree: str
     environment: TargetEnvironmentReport | None = None
     command_outputs_recorded: bool = False
+    preparation: EnvironmentPreparation | None = None
 
     @property
     def verified(self) -> bool:
@@ -91,6 +102,13 @@ class ENSBuildRun:
                 "ready": self.environment.ready,
                 "missing_required": list(self.environment.missing_required),
             } if self.environment else None,
+            "preparation": {
+                "bootstrap": self.preparation.bootstrap.ready,
+                "materialization_command": list(self.preparation.materialization_command),
+                "materialization_returncode": self.preparation.materialization_returncode,
+                "materialization_status": self.preparation.materialization_status,
+                "final_ready": self.preparation.final.ready,
+            } if self.preparation else None,
             "command_outputs_recorded": self.command_outputs_recorded,
             "verified": self.verified,
         }
@@ -137,6 +155,10 @@ def preflight_ens_environment(target: str | Path) -> TargetEnvironmentReport:
     return verify_requirements(target, authoritative_requirements())
 
 
+def _bootstrap_requirements() -> tuple:
+    return tuple(r for r in authoritative_requirements() if r.name in BOOTSTRAP_TOOLS)
+
+
 def run_ens_build(
     target: str | Path,
     *,
@@ -148,7 +170,15 @@ def run_ens_build(
     if not (root / ".git").exists() or not (root / "package.json").is_file():
         raise ValueError(f"not an ENS source checkout: {root}")
 
-    environment = preflight_ens_environment(root)
+    requirements = authoritative_requirements()
+    preparation = prepare_target_environment(
+        root,
+        bootstrap_requirements=_bootstrap_requirements(),
+        final_requirements=requirements,
+        materialization_command=MATERIALIZATION_COMMAND,
+        timeout=timeout_per_command,
+    )
+    environment = preparation.final
     observed_head = _git(root, "rev-parse", "HEAD")
     observed_tree = _git(root, "rev-parse", "HEAD^{tree}")
     worktree_clean = _git(root, "status", "--porcelain") == ""
@@ -157,9 +187,15 @@ def run_ens_build(
     tsgo_version = _tool_version(root, ("tsgo", "--version"))
     hashes: Mapping[str, str] = {name: _git_blob_sha(root, name) for name in BUILD_INPUTS}
 
-    observations: list[CommandObservation] = []
-    if environment.ready:
-        for command in CANONICAL_COMMANDS:
+    observations: list[CommandObservation] = [
+        CommandObservation(
+            MATERIALIZATION_COMMAND,
+            preparation.materialization_returncode,
+            preparation.materialization_status,
+        )
+    ]
+    if preparation.ready:
+        for command in CANONICAL_COMMANDS[1:]:
             observation = _run(root, command, timeout_per_command)
             observations.append(observation)
             if observation.returncode != 0:
@@ -179,7 +215,7 @@ def run_ens_build(
         file_hashes=hashes,
     )
 
-    run = ENSBuildRun(receipt, tuple(observations), observed_head, observed_tree, environment)
+    run = ENSBuildRun(receipt, tuple(observations), observed_head, observed_tree, environment, preparation=preparation)
     if receipt_path is not None:
         path = Path(receipt_path).resolve()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -223,6 +259,8 @@ def _main(argv: Sequence[str] | None = None) -> int:
     print(f"snapshot: {run.observed_head}")
     print(f"tree: {run.observed_tree}")
     print(f"environment: {'READY' if run.environment and run.environment.ready else 'BLOCKED'}")
+    if run.preparation:
+        print(f"PREPARATION: {'PASS' if run.preparation.materialization_returncode == 0 else 'FAIL'} {' '.join(run.preparation.materialization_command)} -> {run.preparation.materialization_status} ({run.preparation.materialization_returncode})")
     if run.environment:
         for capability in run.environment.capabilities:
             print(f"PREREQUISITE: {'PASS' if capability.available else 'FAIL'} {capability.requirement.name} [{capability.observed or 'unavailable'}] — {capability.reason}")
