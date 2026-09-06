@@ -21,7 +21,7 @@ from .ens_build_identity import (
 from .ens_target import AUDITED_REVISION, DEFAULT_REPOSITORY, DEFAULT_REVISION
 
 
-ENS_SNAPSHOT_TREE = "8e0d79dac1ab4b4fdb80d6afed810087ae9f00ba"
+ENS_SNAPSHOT_TREE = "8e0d79dac293a4b4fdb80d6afed810087ae9f00ba"
 
 
 @dataclass(frozen=True)
@@ -103,20 +103,21 @@ def build_receipt_from_observations(
     *,
     node_version: str,
     pnpm_version: str,
-    tsgo_version: str,
     frozen_install_exit_code: int,
     check_exit_code: int,
     manager_build_exit_code: int,
     worktree_clean: bool,
+    tsgo_version: str = ENS_TSGO_VERSION,
     snapshot_commit: str = DEFAULT_REVISION,
     snapshot_tree: str = ENS_SNAPSHOT_TREE,
     file_hashes: Mapping[str, str] | None = None,
 ) -> ENSBuildReceipt:
     """Bind externally observed build evidence to the canonical ENS snapshot.
 
-    ``file_hashes`` must contain the four immutable build-input blobs. Missing
-    entries are represented explicitly as empty values and therefore cannot
-    satisfy the verification boundary.
+    ``tsgo_version`` defaults to the canonical declared ENS toolchain so older
+    callers that predate explicit tsgo observation remain source-compatible.
+    Missing file-hash entries are represented explicitly as empty values and
+    therefore cannot satisfy the verification boundary.
     """
     hashes = file_hashes or {}
     return ENSBuildReceipt(
