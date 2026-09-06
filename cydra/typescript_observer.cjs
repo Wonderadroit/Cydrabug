@@ -8,15 +8,38 @@ const input = JSON.parse(fs.readFileSync(0, "utf8"));
 const targetRoot = path.resolve(input.target_root || process.cwd());
 const supplied = new Map(input.files.map((item) => [path.resolve(targetRoot, item.path), item.source]));
 
-let ts;
-try {
-  const targetRequire = Module.createRequire(path.join(targetRoot, "package.json"));
-  ts = targetRequire("typescript");
-} catch (error) {
-  process.stderr.write(`typescript compiler API unavailable from target: ${error.message}\n`);
-  process.exit(42);
+function packageRootFor(filePath) {
+  let current = path.dirname(path.resolve(filePath));
+  const root = targetRoot;
+  while (true) {
+    const packageJson = path.join(current, "package.json");
+    if (fs.existsSync(packageJson)) return current;
+    if (current === root || current === path.dirname(current)) return root;
+    current = path.dirname(current);
+  }
 }
 
+function loadTypeScript(filePath) {
+  const packageRoot = packageRootFor(filePath);
+  const packageJson = path.join(packageRoot, "package.json");
+  const targetRequire = Module.createRequire(packageJson);
+  try {
+    return {
+      ts: targetRequire("typescript"),
+      package_root: packageRoot,
+    };
+  } catch (error) {
+    const detail = `typescript compiler API unavailable from owning workspace package ${packageRoot}: ${error.message}`;
+    process.stderr.write(detail + "\n");
+    process.exit(42);
+  }
+}
+
+const firstSourcePath = input.files.length
+  ? path.resolve(targetRoot, input.files[0].path)
+  : targetRoot;
+const loaded = loadTypeScript(firstSourcePath);
+const ts = loaded.ts;
 const result = [];
 
 function hasExport(node) {
@@ -97,4 +120,4 @@ for (const item of input.files) {
   visit(sourceFile);
 }
 
-process.stdout.write(JSON.stringify({ compiler: "typescript-compiler-api", compiler_version: ts.version, observations: result }));
+process.stdout.write(JSON.stringify({ compiler: "typescript-compiler-api", compiler_version: ts.version, observations: result, compiler_package_root: loaded.package_root }));
