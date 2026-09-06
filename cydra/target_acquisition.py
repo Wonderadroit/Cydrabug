@@ -176,6 +176,50 @@ def _extract_asset_names(content: str) -> tuple[str, ...]:
     return tuple(names)
 
 
+def _asset_path_associations(content: str, assets: tuple[str, ...], hints: tuple[str, ...]) -> dict[str, tuple[str, ...]]:
+    """Recover explicit asset-to-path associations when scope text publishes them.
+
+    Parenthesized labels such as ``apps/manager (Manager app)`` are treated as
+    direct evidence. Bare paths are associated only by conservative exact token
+    overlap, with narrowly structural aliases for Explorer/portal and Workers.
+    """
+    text = _visible_text(content)
+    associations: dict[str, set[str]] = {asset: set() for asset in assets}
+
+    # First consume explicit ``path (asset label)`` evidence. This prevents a
+    # shared token such as ``manager`` from cross-associating unrelated paths.
+    for match in re.finditer(r"(?P<path>(?:" + "|".join(re.escape(root) for root in _PATH_ROOTS) + r")/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)\s*\((?P<label>[^)]+)\)", text):
+        path = match.group("path").strip("./").rstrip("/")
+        label = match.group("label").strip().lower()
+        for asset in assets:
+            if _label_matches_asset(label, asset):
+                associations[asset].add(path)
+
+    # Then associate any remaining asset/path pairs using exact meaningful
+    # tokens. One-token matches are allowed only for structurally distinctive
+    # roots, avoiding Manager -> transaction-manager cross-association.
+    for asset in assets:
+        if associations[asset]:
+            continue
+        for hint in hints:
+            if _asset_matches_hint(asset, hint):
+                associations[asset].add(hint)
+
+    return {asset: tuple(sorted(values)) for asset, values in associations.items()}
+
+
+def _label_matches_asset(label: str, asset_name: str) -> bool:
+    label_tokens = set(re.sub(r"[^a-z0-9]+", " ", label.lower()).split())
+    asset_tokens = set(re.sub(r"[^a-z0-9]+", " ", asset_name.lower()).split())
+    if label_tokens & asset_tokens:
+        return True
+    aliases = {
+        "explorer": {"portal"},
+        "worker": {"workers", "worker"},
+    }
+    return any(token in aliases.get(asset_token, set()) for asset_token in asset_tokens for token in label_tokens)
+
+
 def extract_scope_evidence(scope_resource: ProgramResource, content: str) -> ScopeEvidence:
     """Extract authoritative asset identities and conservative path hints."""
     if scope_resource.kind is not ResourceKind.SCOPE:
@@ -190,18 +234,21 @@ def extract_scope_evidence(scope_resource: ProgramResource, content: str) -> Sco
         if value:
             hints.add(value.rstrip("/"))
 
+    asset_names = _extract_asset_names(content)
+    sorted_hints = tuple(sorted(hints))
+    associations = _asset_path_associations(content, asset_names, sorted_hints)
     assets = tuple(
         ScopeAssetEvidence(
             asset_name=name,
             source_resource_id=scope_resource.resource_id,
-            path_hints=tuple(sorted(hints)),
+            path_hints=associations.get(name, ()),
             basis="authoritative Immunefi scope asset declaration",
         )
-        for name in _extract_asset_names(content)
+        for name in asset_names
     )
     return ScopeEvidence(
         source_resource_id=scope_resource.resource_id,
-        path_hints=tuple(sorted(hints)),
+        path_hints=sorted_hints,
         basis="authoritative Immunefi scope material; path hints are evidence, not identity",
         assets=assets,
     )
@@ -222,13 +269,24 @@ def _repository_path(locator: str) -> str:
     return "/".join(tail).strip("/").lower()
 
 
-def _asset_matches_hint(asset: ScopeAssetEvidence, hint: str) -> bool:
-    """Conservatively associate an asset with a path when the published name overlaps."""
-    normalized_name = re.sub(r"[^a-z0-9]+", " ", asset.asset_name.lower()).split()
+def _asset_matches_hint(asset: ScopeAssetEvidence | str, hint: str) -> bool:
+    """Conservatively associate an asset with a path when evidence overlaps."""
+    asset_name = asset.asset_name if isinstance(asset, ScopeAssetEvidence) else asset
+    normalized_name = re.sub(r"[^a-z0-9]+", " ", asset_name.lower()).split()
     path_tokens = set(re.sub(r"[^a-z0-9]+", " ", hint.lower()).split())
     aliases = {"explorer": {"portal"}, "worker": {"workers", "worker"}}
     for token in normalized_name:
         if token in path_tokens:
+            # Do not let a generic shared token such as ``manager`` bind an
+            # asset to a different component. Root-aware handling below keeps
+            # distinctive app/worker associations useful.
+            if token in {"manager", "transaction", "smart", "account", "explorer", "worker", "workers"}:
+                if token == "manager" and hint.startswith("packages/"):
+                    continue
+                if token == "transaction" and not hint.startswith("packages/"):
+                    continue
+                if token in {"worker", "workers"} and not hint.startswith("workers/"):
+                    continue
             return True
         if path_tokens & aliases.get(token, set()):
             return True
@@ -247,7 +305,10 @@ def classify_repository(resource: ProgramResource, evidence: ScopeEvidence) -> T
     matched_assets = tuple(
         asset.asset_name
         for asset in evidence.assets
-        if any(_asset_matches_hint(asset, hint) for hint in matched)
+        if any(
+            hint in asset.path_hints
+            for hint in matched
+        )
     )
 
     if matched:
@@ -303,7 +364,7 @@ def _infer_missing_asset_candidates(
     """
     inferred: list[TargetResourceCandidate] = []
     for asset in unresolved_assets:
-        asset_hints = tuple(h for h in asset.path_hints if _asset_matches_hint(asset, h))
+        asset_hints = asset.path_hints
         lineage_map: dict[str, set[str]] = {}
         for candidate in candidates:
             if candidate.scope is not ScopeStatus.IN_SCOPE:
@@ -316,8 +377,6 @@ def _infer_missing_asset_candidates(
             continue
 
         lineage, _ = next(iter(lineage_map.items()))
-        # Use a candidate's exact published URL shape as the template so branch
-        # names containing slashes remain intact.
         template = next(
             candidate
             for candidate in candidates
