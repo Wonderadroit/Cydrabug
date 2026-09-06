@@ -181,7 +181,13 @@ def acquire_live_contest(
         page = acquired_by_id.get(resource.resource_id)
         if page is None:
             continue
-        discovered.extend(bounded_reference_plan(parent=resource, acquired=page, max_depth=max_depth))
+        discovered.extend(
+            bounded_reference_plan(
+                parent=resource,
+                acquired=page,
+                max_depth=max_depth,
+            )
+        )
 
     graph = expand_resource_dependency_graph(
         roots=contract.resources,
@@ -195,13 +201,21 @@ def acquire_live_contest(
         if advertised_revision is not None:
             break
 
-    repository_locator = next(
-        (
-            resource.locator
-            for resource in graph
-            if resource.kind is ResourceKind.REPOSITORY
+    # Do not infer source identity from discovery order or from the generic
+    # ResourceKind.REPOSITORY classification. At this phase, a repository can
+    # be a target, dependency, documentation project, audit material, or a PR
+    # referenced by the authoritative pages. None of those roles is established
+    # merely by being discovered first. The target/source-identity phase must
+    # classify the repository from authoritative scope/provenance evidence and
+    # independently verify the resulting revision/build identity.
+    identity_evidence = AcquisitionIdentityEvidence(
+        repository_locator=None,
+        advertised_revision=advertised_revision,
+        reason=(
+            "no discovered repository is promoted to source identity during "
+            "passive intake; target/resource classification and independent "
+            "repository/build verification are required"
         ),
-        None,
     )
 
     result = LiveContestAcquisition(
@@ -210,23 +224,28 @@ def acquire_live_contest(
         acquired=pages,
         discovered=tuple(discovered),
         graph=tuple(graph),
-        identity_evidence=AcquisitionIdentityEvidence(
-            repository_locator=repository_locator,
-            advertised_revision=advertised_revision,
-        ),
+        identity_evidence=identity_evidence,
     )
     if receipt_path is not None:
         path = Path(receipt_path).resolve()
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(result.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        path.write_text(
+            json.dumps(result.to_dict(), indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
     return result
 
 
 def _main(argv: Sequence[str] | None = None) -> int:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Passively acquire a live Immunefi contest contract and resource graph.")
-    parser.add_argument("locator", help="canonical Immunefi information/scope/resources URL")
+    parser = argparse.ArgumentParser(
+        description="Passively acquire a live Immunefi contest contract and resource graph."
+    )
+    parser.add_argument(
+        "locator",
+        help="canonical Immunefi information/scope/resources URL",
+    )
     parser.add_argument("--receipt", default="evidence/live-contest.json")
     parser.add_argument("--max-depth", type=int, default=2)
     args = parser.parse_args(argv)
