@@ -45,7 +45,8 @@ def repository_locator(locator: str) -> str:
     if host == "github.com":
         if len(parts) < 2:
             raise ValueError("GitHub locator does not identify a repository")
-        return f"https://github.com/{parts[0]}/{parts[1]}.git"
+        repository = parts[1].removesuffix(".git")
+        return f"https://github.com/{parts[0]}/{repository}.git"
 
     if parsed.path.endswith(".git"):
         return locator.split("?", 1)[0].split("#", 1)[0]
