@@ -19,7 +19,7 @@ import re
 import subprocess
 from typing import Iterable, Sequence
 
-from .toolchain_capability import observe_version
+from .toolchain_capability import probe_executable
 
 
 @dataclass(frozen=True)
@@ -39,6 +39,9 @@ class TargetCapability:
     available: bool
     observed: str | None
     reason: str
+    state: str = "UNKNOWN"
+    executable: str | None = None
+    diagnostic: str | None = None
 
 
 @dataclass(frozen=True)
@@ -265,16 +268,27 @@ def verify_requirements(root: str | Path, requirements: Iterable[TargetRequireme
         if requirement.kind == "lockfile":
             available = (root / requirement.name).is_file()
             observed = "present" if available else None
+            state = "MATERIALIZED" if available else "MISSING"
+            executable = None
+            diagnostic = None
         else:
-            observed = observe_version(root, requirement.name)
+            probe = probe_executable(root, requirement.name)
+            observed = probe.observed_version
             available = _matches_version(observed, requirement.version)
+            state = probe.state
+            executable = probe.executable
+            diagnostic = probe.diagnostic
         if available:
             reason = "declared target requirement satisfied"
+        elif state == "UNUSABLE":
+            reason = "executable is materialized but the read-only capability probe failed"
+        elif state == "MISSING":
+            reason = "target requirement is missing"
         elif requirement.version and not _numeric_version(requirement.version):
             reason = "non-numeric CI/channel declaration; does not establish a canonical version"
         else:
-            reason = "target requirement is missing or version-incompatible"
-        capabilities.append(TargetCapability(requirement, available, observed, reason))
+            reason = "target requirement is version-incompatible"
+        capabilities.append(TargetCapability(requirement, available, observed, reason, state, executable, diagnostic))
     return TargetEnvironmentReport(str(root), requirements, tuple(capabilities))
 
 
@@ -322,5 +336,8 @@ def format_report(report: TargetEnvironmentReport) -> str:
             declared = f" {req.version}" if req.version else ""
             observed = f" [{capability.observed}]" if capability.observed else ""
             required = "required" if req.required else "informational"
-            lines.append(f"  {'PASS' if capability.available else 'FAIL'} {req.name}{declared}{observed} ({required}) — {req.source}")
+            lines.append(f"  {'PASS' if capability.available else 'FAIL'} {req.name}{declared}{observed} ({required}) — {capability.reason}")
+            lines.append(f"    state={capability.state} executable={capability.executable or 'none'}")
+            if capability.diagnostic:
+                lines.append(f"    diagnostic={capability.diagnostic[:300]}")
     return "\n".join(lines)
