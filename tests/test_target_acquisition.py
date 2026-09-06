@@ -65,6 +65,47 @@ def test_authoritative_asset_identity_is_preserved_separately_from_paths():
     assert "workers/api-worker" in evidence.path_hints
 
 
+def test_asset_extraction_does_not_cross_into_impacts_or_known_issue_tables():
+    scope = _resource(ResourceKind.SCOPE, "https://immunefi.com/audit-competition/example/scope/")
+    evidence = extract_scope_evidence(
+        scope,
+        """
+        <h2>Assets in Scope</h2>
+        <table>
+          <tr><th>Target</th><th>Name</th><th>Added on</th></tr>
+          <tr><td></td><td>Manager app Files</td><td>6 August 2026</td></tr>
+          <tr><td></td><td>Explorer app Files</td><td>6 August 2026</td></tr>
+          <tr><td></td><td>Workers</td><td>13 August 2026</td></tr>
+          <tr><td></td><td>Transaction-manager</td><td>13 August 2026</td></tr>
+          <tr><td></td><td>Smart-account</td><td>13 August 2026</td></tr>
+        </table>
+        <h2>Impacts in Scope</h2>
+        <table>
+          <tr><th>Severity</th><th>Title</th></tr>
+          <tr><td>Critical</td><td>Direct theft of user funds</td></tr>
+          <tr><td>High</td><td>Arbitrary file uploads</td></tr>
+        </table>
+        <h2>Public Disclosure of Known Issues</h2>
+        <table>
+          <tr><th>Ref</th><th>Severity</th><th>Area</th><th>Issue</th></tr>
+          <tr><td>R2-01</td><td>Medium</td><td>Manager + Explorer</td><td>Secrets remediation incomplete</td></tr>
+        </table>
+        Applies to: apps/manager, apps/portal, packages/smart-account,
+        packages/transaction-manager, workers/api-worker
+        """,
+    )
+    assert {asset.asset_name for asset in evidence.assets} == {
+        "Manager app Files",
+        "Explorer app Files",
+        "Workers",
+        "Transaction-manager",
+        "Smart-account",
+    }
+    assert "Critical" not in {asset.asset_name for asset in evidence.assets}
+    assert "Direct theft of user funds" not in {asset.asset_name for asset in evidence.assets}
+    assert "R2-01" not in {asset.asset_name for asset in evidence.assets}
+
+
 def test_repository_is_target_only_when_authoritative_scope_path_matches():
     scope = _resource(ResourceKind.SCOPE, "https://immunefi.com/audit-competition/example/scope/")
     evidence = extract_scope_evidence(scope, "In scope: apps/manager")
