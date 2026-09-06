@@ -12,6 +12,16 @@ def test_revision_extraction_ignores_unrelated_hashes_before_audited_revision():
     assert _extract_revision_assertion(content) == audited
 
 
+def test_revision_extraction_handles_html_markup_between_label_and_hash():
+    audited = "63772fd872af472ced58b009499355f3430c2a86"
+    content = (
+        "<p><strong>Audited revision</strong> — commit hash: "
+        f"<code>{audited}</code></p>"
+    )
+
+    assert _extract_revision_assertion(content) == audited
+
+
 def test_revision_extraction_requires_audited_revision_label():
     unrelated = "d0a31c5b4b8e0f653b9b0f856191612d3072976f"
     assert _extract_revision_assertion(f"context commit {unrelated}") is None
