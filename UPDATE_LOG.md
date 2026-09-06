@@ -1,5 +1,32 @@
 # CYDRA UPDATE LOG
 
+## 2026-09-06 — resumable-continuity-checkpoint
+
+### Change
+Added a durable CYDRA handoff/checkpoint workflow so work can resume from the exact stopping point after chat loss, context limits, connector interruptions, or a new ChatGPT conversation.
+
+### Boundary
+`repository truth → continuity checkpoint → reproducible resume → current validation → next decision boundary`
+
+### Why
+Conversation memory must not be a required part of CYDRA's development state. The repository must contain enough current workflow state for a fresh agent session to determine what was completed, what remains unresolved, what must not yet be claimed, and exactly how to continue.
+
+### Implementation
+- Added `CYDRA_CONTINUITY.md` as the operational handoff/checkpoint.
+- Updated `AGENTS.md` so every new CYDRA work session reads the Bible, agent contract, continuity checkpoint, and latest relevant update-log entry before making changes or recommendations.
+- The checkpoint records the completed ENS source-observation baseline: 1,746 inventoried / 1,746 supplied files, TypeScript 6.0.3, 62,758 observations, 62,645 nodes, 2,293 edges, 2,133 resolved imports, 3,086 unresolved imports, 160 resolved exports, and 1 unresolved export.
+- The checkpoint explicitly preserves the unresolved ENS audited-source identity constraint and distinguishes compiler observations from semantic/security conclusions.
+- The checkpoint defines the next investigation boundary as compiler-backed symbol identity and trustworthy intra-system relationships, with call relationships as the first candidate because 45,137 call observations currently exist without equivalent resolved caller/callee coverage.
+
+### Safety semantics
+The checkpoint is operational state, not evidence authority. Reproduction instructions do not establish authorization, source identity, vulnerability validity, or independent variant validation. Fresh sessions must revalidate current runtime/CI/source/build facts before making current claims.
+
+### Live-contest exercise
+The checkpoint is anchored to the live ENS Audit Competition reconstruction experiment and its current PRoot Ubuntu environment.
+
+### Validation status
+The continuity file and agent contract are committed on `live-immunefi-work`. The Bible already identifies interrupted-work recovery as a research-critical boundary; this change operationalizes that existing doctrine rather than replacing the Bible.
+
 ## 2026-09-06 — adaptive-observation-and-human-authorization-doctrine
 
 ### Change
