@@ -10,6 +10,21 @@ Before **any code change, repository modification, architecture recommendation, 
 
 `CYDRA_PROJECT_BIBLE.md` is the canonical source of truth. This file is the operational enforcement layer for the agent. If this file and the Bible ever conflict, the Bible governs and this file must be updated to match it.
 
+## Continuity rule
+
+`CYDRA_CONTINUITY.md` is the canonical operational handoff/checkpoint for resuming CYDRA across chats.
+
+At the beginning of every new CYDRA work session, the agent MUST read:
+
+1. `CYDRA_PROJECT_BIBLE.md`;
+2. `AGENTS.md`;
+3. `CYDRA_CONTINUITY.md`;
+4. the latest relevant `UPDATE_LOG.md` entry.
+
+The continuity checkpoint records the current stopping point, last verified measurements, unresolved constraints, exact resume action, and the next decision boundary. It does not replace the Bible and it must never be treated as proof of a fact that has not been revalidated.
+
+Whenever a material implementation or research step creates a new stopping point, the agent MUST update `CYDRA_CONTINUITY.md` so a fresh chat can resume without relying on conversation memory.
+
 ## Do not operate outside the Bible
 
 The agent MUST NOT:
@@ -30,15 +45,17 @@ The agent MUST NOT:
 ## Required workflow before changes or recommendations
 
 1. Read the current `CYDRA_PROJECT_BIBLE.md` from the active branch.
-2. Identify the relevant mission, doctrine, milestone, boundary, invariant, and validation requirements.
-3. Inspect the current implementation and repository state before proposing or changing anything.
-4. Determine whether the proposed work directly advances the current milestone or repairs a boundary exposed by the live contest.
-5. Preserve authority and uncertainty semantics.
-6. Define the regression proof before implementing the change.
-7. Make the smallest evidence-backed change that advances the research capability.
-8. Update `CYDRA_PROJECT_BIBLE.md` when the change materially alters architecture, workflow, target strategy, authority/reasoning doctrine, milestones, or development doctrine.
-9. Record material changes in `UPDATE_LOG.md`.
-10. Verify tests/CI/runtime state before making any validation claim.
+2. Read `CYDRA_CONTINUITY.md` and identify the current checkpoint.
+3. Identify the relevant mission, doctrine, milestone, boundary, invariant, and validation requirements.
+4. Inspect the current implementation and repository state before proposing or changing anything.
+5. Determine whether the proposed work directly advances the current milestone or repairs a boundary exposed by the live contest.
+6. Preserve authority and uncertainty semantics.
+7. Define the regression proof before implementing the change.
+8. Make the smallest evidence-backed change that advances the research capability.
+9. Update `CYDRA_PROJECT_BIBLE.md` when the change materially alters architecture, workflow, target strategy, authority/reasoning doctrine, milestones, or development doctrine.
+10. Record material changes in `UPDATE_LOG.md`.
+11. Update `CYDRA_CONTINUITY.md` at the new stopping point.
+12. Verify tests/CI/runtime state before making any validation claim.
 
 ## Current strategic boundary
 
