@@ -4,6 +4,11 @@ Declarations come from the target repository and remain evidence, not authority
 to execute or install arbitrary software. Discovery is deliberately conservative:
 CYDRA reads common manifests, toolchain files, CI configuration, and setup/readme
 instructions, then reports what the operator/runtime must provide.
+
+Environment preparation is staged: bootstrap capabilities are verified first,
+then an explicitly supplied target-declared materialization command may run, and
+only afterward are materialized capabilities verified. CYDRA never invents or
+substitutes a materialization command.
 """
 from __future__ import annotations
 
@@ -12,7 +17,7 @@ import json
 from pathlib import Path
 import re
 import subprocess
-from typing import Iterable
+from typing import Iterable, Sequence
 
 from .toolchain_capability import observe_version
 
@@ -56,6 +61,19 @@ class TargetEnvironmentReport:
     def ready_for(self, purpose: str) -> bool:
         scoped = self.capabilities_for(purpose)
         return bool(scoped) and all(c.available for c in scoped)
+
+
+@dataclass(frozen=True)
+class EnvironmentPreparation:
+    bootstrap: TargetEnvironmentReport
+    materialization_command: tuple[str, ...]
+    materialization_returncode: int
+    materialization_status: str
+    final: TargetEnvironmentReport
+
+    @property
+    def ready(self) -> bool:
+        return self.bootstrap.ready and self.materialization_returncode == 0 and self.final.ready
 
 
 _COMMAND_TOOLS = ("docker", "forge", "cargo", "pnpm", "npm", "yarn", "node", "python", "python3")
@@ -258,6 +276,39 @@ def verify_requirements(root: str | Path, requirements: Iterable[TargetRequireme
             reason = "target requirement is missing or version-incompatible"
         capabilities.append(TargetCapability(requirement, available, observed, reason))
     return TargetEnvironmentReport(str(root), requirements, tuple(capabilities))
+
+
+def prepare_target_environment(
+    root: str | Path,
+    *,
+    bootstrap_requirements: Iterable[TargetRequirement],
+    final_requirements: Iterable[TargetRequirement],
+    materialization_command: Sequence[str],
+    timeout: int = 1800,
+) -> EnvironmentPreparation:
+    """Materialize target dependencies only after bootstrap capabilities pass.
+
+    The command is supplied by the target-specific adapter. This function never
+    invents an install command, changes it, or substitutes another toolchain.
+    """
+    root = Path(root).resolve()
+    bootstrap = verify_requirements(root, bootstrap_requirements)
+    command = tuple(materialization_command)
+    if not bootstrap.ready:
+        return EnvironmentPreparation(bootstrap, command, 127, "BOOTSTRAP_BLOCKED", verify_requirements(root, final_requirements))
+    if not command:
+        return EnvironmentPreparation(bootstrap, command, 127, "MATERIALIZATION_COMMAND_MISSING", verify_requirements(root, final_requirements))
+    try:
+        result = subprocess.run(
+            list(command), cwd=root, capture_output=True, text=True, timeout=timeout, check=False
+        )
+    except subprocess.TimeoutExpired:
+        return EnvironmentPreparation(bootstrap, command, 124, "TIMEOUT", verify_requirements(root, final_requirements))
+    except OSError:
+        return EnvironmentPreparation(bootstrap, command, 127, "TOOLCHAIN_UNAVAILABLE", verify_requirements(root, final_requirements))
+    status = "SUCCEEDED" if result.returncode == 0 else "FAILED"
+    final = verify_requirements(root, final_requirements)
+    return EnvironmentPreparation(bootstrap, command, result.returncode, status, final)
 
 
 def format_report(report: TargetEnvironmentReport) -> str:
