@@ -71,19 +71,24 @@ class TargetAcquisitionPlan:
 
 
 class _TableParser(HTMLParser):
-    """Dependency-free parser that preserves HTML table row/column structure."""
+    """Dependency-free parser that preserves table and row/column structure."""
 
     def __init__(self) -> None:
         super().__init__()
+        self.in_table = False
         self.in_row = False
         self.in_cell = False
-        self.rows: list[list[str]] = []
+        self.tables: list[list[list[str]]] = []
+        self._table: list[list[str]] = []
         self._row: list[str] = []
         self._buffer: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         tag = tag.lower()
-        if tag == "tr":
+        if tag == "table":
+            self.in_table = True
+            self._table = []
+        elif tag == "tr" and self.in_table:
             self.in_row = True
             self._row = []
         elif tag in {"td", "th"} and self.in_row:
@@ -103,9 +108,14 @@ class _TableParser(HTMLParser):
             self._buffer = []
         elif tag == "tr" and self.in_row:
             if self._row:
-                self.rows.append(self._row)
+                self._table.append(self._row)
             self.in_row = False
             self._row = []
+        elif tag == "table" and self.in_table:
+            if self._table:
+                self.tables.append(self._table)
+            self.in_table = False
+            self._table = []
 
 
 def _visible_text(content: str) -> str:
@@ -121,16 +131,22 @@ def _extract_asset_names(content: str) -> tuple[str, ...]:
     try:
         parser.feed(content)
     except Exception:
-        parser.rows = []
+        parser.tables = []
 
     names: list[str] = []
-    for row_index, row in enumerate(parser.rows):
-        normalized = [cell.lower() for cell in row]
-        if "name" not in normalized or "target" not in normalized:
+    for table in parser.tables:
+        header_index = None
+        name_index = None
+        for row_index, row in enumerate(table):
+            normalized = [cell.lower() for cell in row]
+            if "name" in normalized and "target" in normalized:
+                header_index = row_index
+                name_index = normalized.index("name")
+                break
+        if header_index is None or name_index is None:
             continue
-        name_index = normalized.index("name")
-        # Only consume rows after the matching header and only the same column.
-        for candidate_row in parser.rows[row_index + 1 :]:
+
+        for candidate_row in table[header_index + 1 :]:
             if len(candidate_row) <= name_index:
                 continue
             candidate = candidate_row[name_index].strip()
