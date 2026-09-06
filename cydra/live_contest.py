@@ -37,13 +37,13 @@ def _extract_revision_assertion(content: str) -> str | None:
     The source-identity boundary must receive a semantically bound assertion.
 
     Program pages are acquired as HTML, so markup may occur between the
-    semantic label and its value (for example ``commit hash: <code>...</code>``).
-    Normalize markup/entities before applying the semantic extraction rule.
+    semantic label and its value. Normalize markup/entities before applying a
+    strict label/value grammar.
     """
     normalized = html.unescape(re.sub(r"<[^>]*>", " ", content))
     patterns = (
-        r"(?is)audited\s+revision\s*(?:[—–:-]|\s)*\s*(?:commit\s+hash\s*)?`?\s*([0-9a-f]{40})\b",
-        r"(?is)audited\s+revision[^0-9a-f]{0,80}([0-9a-f]{40})\b",
+        r"(?is)audited\s+revision\s*(?:[—–:-]\s*)?(?:commit\s+hash\s*)?(?:[:—–-]\s*)?`?\s*([0-9a-f]{40})(?![0-9a-f])",
+        r"(?is)audited\s+revision\s*(?:[—–:-]\s*)?commit\s+hash\s*[:—–-]\s*`?\s*([0-9a-f]{40})(?![0-9a-f])",
     )
     for pattern in patterns:
         match = re.search(pattern, normalized)
