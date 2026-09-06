@@ -5,8 +5,9 @@
 **Project:** CYDRA  
 **Repository:** `Wonderadroit/cydrabug`  
 **Status:** Canonical working source of truth  
-**Bible version:** `2.0.0-live-contest`  
-**Created:** 2026-09-04
+**Bible version:** `2.1.0-live-contest`  
+**Created:** 2026-09-04  
+**Updated:** 2026-09-06
 
 ---
 
@@ -240,6 +241,94 @@ Heuristic fallback may support discovery, but it must not fabricate semantic ver
 
 ---
 
+## 7.5 Adaptive Observation and Toolchain Learning
+
+CYDRA is **system-first, not language-first**. A target may contain one language or many languages, and the same language may be organized very differently by different developers or projects. CYDRA must not assume that a project resembles a previous target merely because it uses the same language.
+
+### Observation capability
+
+A compiler, parser, language server, build tool, runtime, or other language-native tool is an **observation instrument**. It is not the CYDRA reasoning engine.
+
+CYDRA should discover and preserve, where available:
+
+- languages and source families;
+- project manifests and configuration;
+- compiler/toolchain identity;
+- required or observed versions;
+- dependency and lock information;
+- build commands and targets;
+- relevant compiler/parser interfaces;
+- source maps, ASTs, symbol information, and other structural representations;
+- project-specific configuration required to reproduce observations.
+
+The goal is to convert language/toolchain-specific observations into the canonical CYDRA evidence/model layer.
+
+### Reusable observers
+
+An observer should normally be **ecosystem/language/toolchain-oriented**, not project-oriented.
+
+For example:
+
+`TypeScript project A → TypeScript observer`  
+`TypeScript project B → same TypeScript observer, subject to configuration/capability gaps`
+
+Likewise, when CYDRA encounters Solidity, Rust, Python, or another ecosystem, it should seek the strongest native observation path available rather than force the existing TypeScript observer onto the target.
+
+A new project does not automatically require a new parser. A new language/toolchain may require a new observer. A project-specific gap may require an adapter extension or configuration rather than a whole new parser.
+
+### Adaptive observer construction
+
+When a required observer does not exist, CYDRA should be able to determine the missing observation capability and investigate how the target ecosystem can expose it.
+
+The intended workflow is:
+
+`Target discovery → language/toolchain detection → capability gap → toolchain investigation → observer construction/adaptation → regression validation → promotion → reusable capability`
+
+Where an LLM or other external assistant is available, it may help interpret unfamiliar compiler APIs, documentation, configuration, errors, or implementation options. The assistant is **not** evidence, is not the security oracle, and does not have authority to promote its own interpretation.
+
+Observer promotion requires deterministic or otherwise independently checkable validation. A generated/adapted observer must demonstrate that its observations correspond to the target's actual source/build/toolchain behavior before it becomes trusted capability.
+
+### Uncertainty at the observation boundary
+
+If CYDRA cannot obtain reliable compiler/toolchain observations, it must preserve that limitation explicitly:
+
+`source discovered → observer unavailable/partial → uncertainty preserved → request better observation or choose justified fallback`
+
+CYDRA must never convert an unavailable observation into an assumed semantic fact merely to complete the model.
+
+### Source completeness principle
+
+If the repository inventory contains source that belongs to an admitted source family, CYDRA must not silently omit it from compiler-backed observation because of incomplete extension/admission rules. Coverage gaps must be measurable and exposed.
+
+The ENS source-admission experiment is a concrete example: the inventory initially contained 1,746 files while only 1,745 were supplied to the TypeScript compiler observer. Admission was expanded to JavaScript-family extensions and the measurement subsequently reached 1,746 inventoried / 1,746 supplied. This establishes the principle that source-admission completeness is an observable engineering boundary, not an assumption.
+
+---
+
+## 7.6 Human Review and Authorization Boundary
+
+CYDRA is intended to minimize the amount of continuous human assistance required during an investigation while preserving explicit human authority at consequential boundaries.
+
+The human researcher remains the **principal authority**. CYDRA should perform routine discovery, modeling, reasoning, testing preparation, validation, evidence organization, and recovery autonomously within the authority already granted to it.
+
+Human review/authorization should be concentrated at boundaries where a human decision materially changes authority, risk, or external consequence, including where applicable:
+
+- granting or confirming authority for active testing;
+- approving actions that could materially affect external systems or assets;
+- approving promotion of a newly learned observer when its consequences are not fully covered by automated validation;
+- reviewing a high-impact or ambiguous interpretation;
+- authorizing final bounty submission/publication;
+- overriding a CYDRA uncertainty or rejected claim.
+
+Routine mechanical work should not require the human to manually guide every parser call, compiler invocation, graph edge, hypothesis update, or test selection when those operations are already bounded by CYDRA's validated capabilities and authority model.
+
+The desired operating pattern is:
+
+`CYDRA discovers/reasons → assistant helps interpret when needed → CYDRA validates → CYDRA continues → human reviews/authorizes consequential boundary`
+
+Human review is therefore a **control boundary**, not CYDRA's substitute for reasoning.
+
+---
+
 ## 8. System Understanding
 
 Before serious vulnerability reasoning, CYDRA should model:
@@ -459,6 +548,9 @@ Produce a bounty-ready finding and step-by-step PoC when a real bug is verified.
 ### M10 — Live-Contest Evaluation
 Evaluate CYDRA's complete chain against the live contest without using historical findings as a shortcut/oracle.
 
+### M11 — Adaptive Observation Capability
+Demonstrate that CYDRA can detect an observation-capability gap, determine the target ecosystem/toolchain requirements, use assistant support when helpful, construct or adapt an observer, validate it against independently checkable observations, and preserve uncertainty when validation is insufficient.
+
 ---
 
 ## 18. Definition of Done for the First Live Contest
@@ -492,7 +584,13 @@ The first live integration should deliberately exercise:
 - causal verification → finding eligibility;
 - live scope/impact/known-issue checks;
 - PoC generation;
-- recovery after interrupted work.
+- recovery after interrupted work;
+- language/toolchain detection;
+- source-admission completeness;
+- observer capability gaps;
+- observer validation and promotion;
+- assistant-derived implementation guidance versus independently validated evidence;
+- human authorization at consequential boundaries.
 
 These are research-critical boundaries, not merely engineering details.
 
