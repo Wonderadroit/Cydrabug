@@ -166,6 +166,41 @@ def test_all_authoritative_assets_must_be_resolved_before_source_identity():
     assert any(asset.asset_name == "Workers" for asset in plan.unresolved_assets)
 
 
+def test_missing_asset_path_can_be_inferred_from_unique_observed_repository_lineage():
+    scope_locator = "https://immunefi.com/audit-competition/example/scope/"
+    manager_locator = "https://github.com/example/project/tree/audit-ready/apps/manager"
+    scope = _resource(ResourceKind.SCOPE, scope_locator)
+    manager = _resource(ResourceKind.REPOSITORY, manager_locator)
+    acquired_scope = AcquiredResource(
+        scope_locator,
+        """
+        <table>
+          <tr><th>Target</th><th>Name</th><th>Added on</th></tr>
+          <tr><td></td><td>Manager app Files</td><td>6 August 2026</td></tr>
+          <tr><td></td><td>Workers</td><td>13 August 2026</td></tr>
+        </table>
+        In scope: apps/manager workers/api-worker
+        """,
+        "fixture",
+    )
+    contract = ProgramContract("example", "immunefi", "Example", scope.resource_id, (scope, manager))
+    result = LiveContestAcquisition(
+        "https://immunefi.com/audit-competition/example/information/",
+        contract,
+        (acquired_scope,),
+        (),
+        (scope, manager),
+    )
+
+    plan = plan_target_acquisition(result)
+    inferred = [c for c in plan.candidates if c.acquisition_role == "TARGET_INFERRED_PATH"]
+    assert len(inferred) == 1
+    assert inferred[0].locator == "https://github.com/example/project/tree/audit-ready/workers/api-worker"
+    assert inferred[0].asset_names == ("Workers",)
+    assert plan.unresolved_assets == ()
+    assert plan.ready_for_source_identity is True
+
+
 def test_discovery_order_cannot_change_target_classification():
     scope_locator = "https://immunefi.com/audit-competition/example/scope/"
     target_locator = "https://github.com/example/project/tree/rev/apps/manager"
