@@ -87,6 +87,84 @@ def test_typescript_provider_binds_resolved_import_to_supplied_file(monkeypatch,
     assert import_observation.relationships[0].target_observation_id == "file:src/b.ts:1:src/b.ts"
 
 
+def test_typescript_provider_binds_only_compiler_resolved_internal_call(monkeypatch, tmp_path):
+    payload = {
+        "compiler": "typescript-compiler-api",
+        "compiler_version": "6.0.3",
+        "observations": [
+            {"path": "src/a.ts", "kind": "file", "name": "src/a.ts", "line": 1, "attributes": {}},
+            {"path": "src/a.ts", "kind": "function", "name": "target", "line": 2,
+             "attributes": {"symbol_identity": {"qualified_name": "target", "declaration_path": str((tmp_path / "src/a.ts").resolve())}}},
+            {"path": "src/a.ts", "kind": "function", "name": "caller", "line": 3,
+             "attributes": {"symbol_identity": {"qualified_name": "caller", "declaration_path": str((tmp_path / "src/a.ts").resolve())}}},
+            {"path": "src/a.ts", "kind": "call", "name": "target", "line": 4,
+             "attributes": {
+                 "expression": "target",
+                 "caller_symbol_identity": {"qualified_name": "caller", "declaration_path": str((tmp_path / "src/a.ts").resolve())},
+                 "callee_symbol_identity": {"qualified_name": "target", "declaration_path": str((tmp_path / "src/a.ts").resolve())},
+                 "caller_resolution_status": "RESOLVED",
+                 "callee_resolution_status": "RESOLVED",
+             }},
+        ],
+    }
+    monkeypatch.setattr(
+        "cydra.typescript_provider.subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr=""),
+    )
+
+    provider = TypeScriptCompilerProvider(tmp_path)
+    observations = tuple(provider.observe(
+        ["src/a.ts"], {"src/a.ts": "function target() {}\nfunction caller() { target(); }"}
+    ))
+    caller = next(o for o in observations if o.name == "caller")
+    call = next(o for o in observations if o.kind is SourceObservationKind.CALL)
+
+    assert call.attributes["callee_relationship_status"] == "RESOLVED_INTERNAL"
+    assert len(caller.relationships) == 1
+    relationship = caller.relationships[0]
+    assert relationship.relation == "calls"
+    assert relationship.target_observation_id.endswith(":target")
+    assert relationship.attributes["evidence_observation_id"] == call.observation_id
+    assert relationship.attributes["relationship_basis"] == "typescript-typechecker-symbol-identity"
+
+    system = project_source_observations(observations)
+    assert any(edge.relation == "calls" for edge in system.edges)
+
+
+def test_typescript_provider_preserves_external_and_unresolved_calls(monkeypatch, tmp_path):
+    payload = {
+        "compiler": "typescript-compiler-api",
+        "compiler_version": "6.0.3",
+        "observations": [
+            {"path": "src/a.ts", "kind": "file", "name": "src/a.ts", "line": 1, "attributes": {}},
+            {"path": "src/a.ts", "kind": "function", "name": "caller", "line": 2,
+             "attributes": {"symbol_identity": {"qualified_name": "caller", "declaration_path": str((tmp_path / "src/a.ts").resolve())}}},
+            {"path": "src/a.ts", "kind": "call", "name": "library", "line": 3,
+             "attributes": {
+                 "expression": "library",
+                 "caller_symbol_identity": {"qualified_name": "caller", "declaration_path": str((tmp_path / "src/a.ts").resolve())},
+                 "callee_symbol_identity": {"qualified_name": "library", "declaration_path": str((tmp_path / "node_modules/lib/index.d.ts").resolve())},
+             }},
+            {"path": "src/a.ts", "kind": "call", "name": "dynamic", "line": 4,
+             "attributes": {"expression": "fn", "caller_symbol_identity": None, "callee_symbol_identity": None}},
+        ],
+    }
+    monkeypatch.setattr(
+        "cydra.typescript_provider.subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr=""),
+    )
+
+    provider = TypeScriptCompilerProvider(tmp_path)
+    observations = tuple(provider.observe(["src/a.ts"], {"src/a.ts": "function caller() { library(); fn(); }"}))
+    external = next(o for o in observations if o.name == "library")
+    dynamic = next(o for o in observations if o.name == "dynamic")
+    caller = next(o for o in observations if o.name == "caller")
+
+    assert external.attributes["callee_relationship_status"] == "RESOLVED_EXTERNAL"
+    assert dynamic.attributes["callee_relationship_status"] == "UNRESOLVED"
+    assert caller.relationships == ()
+
+
 def test_typescript_provider_fails_closed_when_compiler_is_unavailable(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "cydra.typescript_provider.subprocess.run",
