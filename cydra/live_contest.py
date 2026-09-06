@@ -6,7 +6,7 @@ program-intake record suitable for the later target/source/build gates.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import html
 import json
 from pathlib import Path
@@ -27,19 +27,16 @@ from .program_intake import (
     bounded_reference_plan,
     expand_resource_dependency_graph,
 )
+from .source_lineage import (
+    LineageStatus,
+    SourceCandidate,
+    SourceIdentityResolution,
+    resolve_source_identity,
+)
 
 
 def _extract_revision_assertion(content: str) -> str | None:
-    """Extract only a revision explicitly labelled as the audited revision.
-
-    Generic 40-hex tokens are not sufficient evidence: program pages commonly
-    contain unrelated commit hashes in links, documentation, or embedded data.
-    The source-identity boundary must receive a semantically bound assertion.
-
-    Program pages are acquired as HTML, so markup may occur between the
-    semantic label and its value. Normalize markup/entities before applying a
-    strict label/value grammar.
-    """
+    """Extract only a revision explicitly labelled as the audited revision."""
     normalized = html.unescape(re.sub(r"<[^>]*>", " ", content))
     patterns = (
         r"(?is)audited\s+revision\s*(?:[—–:-]\s*)?(?:commit\s+hash\s*)?(?:[:—–-]\s*)?`?\s*([0-9a-f]{40})(?![0-9a-f])",
@@ -54,11 +51,7 @@ def _extract_revision_assertion(content: str) -> str | None:
 
 @dataclass(frozen=True)
 class AcquisitionIdentityEvidence:
-    """Source-identity facts observed during passive program acquisition.
-
-    These are observations only. They do not establish cryptographic source
-    identity, build identity, or authorization to test a discovered resource.
-    """
+    """Source-identity facts observed during passive program acquisition."""
 
     repository_locator: str | None = None
     advertised_revision: str | None = None
@@ -79,10 +72,17 @@ class LiveContestAcquisition:
     discovered: tuple[ResourceDiscovery, ...]
     graph: tuple[ProgramResource, ...]
     identity_evidence: AcquisitionIdentityEvidence | None = None
+    source_resolution: SourceIdentityResolution | None = None
 
     @property
     def ready_for_active_testing(self) -> bool:
         if not self.contract.ready_for_active_testing:
+            return False
+
+        # An advertised source revision creates a mandatory identity gate. A
+        # repository can be discovered without proving that it is the audited
+        # source; that must never unlock active analysis.
+        if self.source_resolution is not None and not self.source_resolution.ready_for_analysis:
             return False
 
         for resource in self.graph:
@@ -92,11 +92,46 @@ class LiveContestAcquisition:
                 if resource.state is not AcquisitionState.ACQUIRED:
                     return False
 
-            if resource.required:
-                if resource.state is not AcquisitionState.ACQUIRED:
-                    return False
+            if resource.required and resource.state is not AcquisitionState.ACQUIRED:
+                return False
 
         return True
+
+    def resolve_source_candidates(
+        self,
+        candidates: tuple[SourceCandidate, ...] | list[SourceCandidate],
+    ) -> "LiveContestAcquisition":
+        """Apply generic lineage reasoning to independently collected evidence.
+
+        This is deliberately separate from passive Immunefi intake: adapters or
+        later source-acquisition stages collect observations, then CYDRA's
+        project-agnostic resolver judges them. Provenance support never unlocks
+        active testing; only VERIFIED does.
+        """
+        advertised = (
+            self.identity_evidence.advertised_revision
+            if self.identity_evidence is not None
+            else None
+        )
+        if advertised is None:
+            raise ValueError("no advertised audited revision is available")
+
+        resolution = resolve_source_identity(advertised, candidates)
+        selected = resolution.selected_locator
+        evidence = self.identity_evidence or AcquisitionIdentityEvidence()
+        updated_evidence = replace(
+            evidence,
+            repository_locator=selected,
+            advertised_revision=advertised,
+            independent_verification=resolution.exact_identity_verified,
+            status=resolution.status.value,
+            reason=resolution.reason,
+        )
+        return replace(
+            self,
+            identity_evidence=updated_evidence,
+            source_resolution=resolution,
+        )
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -126,17 +161,33 @@ class LiveContestAcquisition:
                 {
                     "repository_locator": self.identity_evidence.repository_locator,
                     "advertised_revision": self.identity_evidence.advertised_revision,
-                    "declared_lineage_revision": (
-                        self.identity_evidence.declared_lineage_revision
-                    ),
+                    "declared_lineage_revision": self.identity_evidence.declared_lineage_revision,
                     "acquired_revision": self.identity_evidence.acquired_revision,
-                    "independent_verification": (
-                        self.identity_evidence.independent_verification
-                    ),
+                    "independent_verification": self.identity_evidence.independent_verification,
                     "status": self.identity_evidence.status,
                     "reason": self.identity_evidence.reason,
                 }
                 if self.identity_evidence is not None
+                else None
+            ),
+            "source_resolution": (
+                {
+                    "advertised_revision": self.source_resolution.advertised_revision,
+                    "status": self.source_resolution.status.value,
+                    "selected_locator": self.source_resolution.selected_locator,
+                    "exact_identity_verified": self.source_resolution.exact_identity_verified,
+                    "reason": self.source_resolution.reason,
+                    "evidence": [
+                        {
+                            "kind": item.kind.value,
+                            "source": item.source,
+                            "detail": item.detail,
+                            "supports": item.supports,
+                        }
+                        for item in self.source_resolution.evidence
+                    ],
+                }
+                if self.source_resolution is not None
                 else None
             ),
             "graph": [
@@ -186,11 +237,7 @@ def acquire_live_contest(
         if page is None:
             continue
         discovered.extend(
-            bounded_reference_plan(
-                parent=resource,
-                acquired=page,
-                max_depth=max_depth,
-            )
+            bounded_reference_plan(parent=resource, acquired=page, max_depth=max_depth)
         )
 
     graph = expand_resource_dependency_graph(
@@ -199,19 +246,35 @@ def acquire_live_contest(
         fetcher=None,
         max_depth=max_depth,
     )
+
     advertised_revision = None
     for page in pages:
         advertised_revision = _extract_revision_assertion(page.content)
         if advertised_revision is not None:
             break
 
+    repository_locators = tuple(
+        item.locator for item in discovered if item.kind is ResourceKind.REPOSITORY
+    )
+    candidates = tuple(SourceCandidate(locator=item) for item in repository_locators)
+    source_resolution = (
+        resolve_source_identity(advertised_revision, candidates)
+        if advertised_revision is not None
+        else None
+    )
+
+    selected = source_resolution.selected_locator if source_resolution else None
     identity_evidence = AcquisitionIdentityEvidence(
-        repository_locator=None,
+        repository_locator=selected,
         advertised_revision=advertised_revision,
+        independent_verification=(
+            source_resolution.exact_identity_verified if source_resolution else False
+        ),
+        status=(source_resolution.status.value if source_resolution else "UNRESOLVED"),
         reason=(
-            "no discovered repository is promoted to source identity during "
-            "passive intake; target/resource classification and independent "
-            "repository/build verification are required"
+            source_resolution.reason
+            if source_resolution
+            else "no authoritative audited revision was semantically extracted from acquired program material"
         ),
     )
 
@@ -222,14 +285,12 @@ def acquire_live_contest(
         discovered=tuple(discovered),
         graph=tuple(graph),
         identity_evidence=identity_evidence,
+        source_resolution=source_resolution,
     )
     if receipt_path is not None:
         path = Path(receipt_path).resolve()
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(result.to_dict(), indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
+        path.write_text(json.dumps(result.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return result
 
 
@@ -256,6 +317,7 @@ def _main(argv: Sequence[str] | None = None) -> int:
     print(f"acquired pages: {len(result.acquired)}")
     print(f"discovered resources: {len(result.discovered)}")
     print(f"graph resources: {len(result.graph)}")
+    print(f"source identity: {result.source_resolution.status.value if result.source_resolution else 'UNRESOLVED'}")
     print(f"active testing ready: {result.ready_for_active_testing}")
     print(f"receipt: {Path(args.receipt).resolve()}")
     return 0
@@ -265,4 +327,4 @@ if __name__ == "__main__":
     raise SystemExit(_main())
 
 
-__all__ = ["LiveContestAcquisition", "acquire_live_contest"]
+__all__ = ["AcquisitionIdentityEvidence", "LiveContestAcquisition", "acquire_live_contest"]
