@@ -24,7 +24,9 @@ from .ens_build_identity import (
     ENS_PNPM_WORKSPACE_SHA,
 )
 from .ens_build_receipt import ENSBuildReceipt, build_receipt_from_observations
+from .ens_environment import authoritative_requirements
 from .ens_target import AUDITED_REVISION, DEFAULT_REVISION
+from .target_environment import TargetEnvironmentReport, verify_requirements
 
 
 CANONICAL_COMMANDS: tuple[tuple[str, ...], ...] = (
@@ -58,11 +60,12 @@ class ENSBuildRun:
     commands: tuple[CommandObservation, ...]
     observed_head: str
     observed_tree: str
+    environment: TargetEnvironmentReport | None = None
     command_outputs_recorded: bool = False
 
     @property
     def verified(self) -> bool:
-        return self.receipt.verified and all(c.returncode == 0 for c in self.commands)
+        return self.receipt.verified and all(c.returncode == 0 for c in self.commands) and bool(self.environment and self.environment.ready)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -73,6 +76,21 @@ class ENSBuildRun:
             ],
             "observed_head": self.observed_head,
             "observed_tree": self.observed_tree,
+            "environment": {
+                "root": self.environment.root,
+                "requirements": [asdict(r) for r in self.environment.requirements],
+                "capabilities": [
+                    {
+                        "requirement": asdict(c.requirement),
+                        "available": c.available,
+                        "observed": c.observed,
+                        "reason": c.reason,
+                    }
+                    for c in self.environment.capabilities
+                ],
+                "ready": self.environment.ready,
+                "missing_required": list(self.environment.missing_required),
+            } if self.environment else None,
             "command_outputs_recorded": self.command_outputs_recorded,
             "verified": self.verified,
         }
@@ -114,6 +132,11 @@ def _tool_version(root: Path, argv: Sequence[str]) -> str:
     return text.splitlines()[0] if result.returncode == 0 and text else ""
 
 
+def preflight_ens_environment(target: str | Path) -> TargetEnvironmentReport:
+    """Verify authoritative ENS build prerequisites without executing target commands."""
+    return verify_requirements(target, authoritative_requirements())
+
+
 def run_ens_build(
     target: str | Path,
     *,
@@ -125,6 +148,7 @@ def run_ens_build(
     if not (root / ".git").exists() or not (root / "package.json").is_file():
         raise ValueError(f"not an ENS source checkout: {root}")
 
+    environment = preflight_ens_environment(root)
     observed_head = _git(root, "rev-parse", "HEAD")
     observed_tree = _git(root, "rev-parse", "HEAD^{tree}")
     worktree_clean = _git(root, "status", "--porcelain") == ""
@@ -133,11 +157,12 @@ def run_ens_build(
     hashes: Mapping[str, str] = {name: _git_blob_sha(root, name) for name in BUILD_INPUTS}
 
     observations: list[CommandObservation] = []
-    for command in CANONICAL_COMMANDS:
-        observation = _run(root, command, timeout_per_command)
-        observations.append(observation)
-        if observation.returncode != 0:
-            break
+    if environment.ready:
+        for command in CANONICAL_COMMANDS:
+            observation = _run(root, command, timeout_per_command)
+            observations.append(observation)
+            if observation.returncode != 0:
+                break
 
     by_name = {" ".join(o.command): o.returncode for o in observations}
     receipt = build_receipt_from_observations(
@@ -152,7 +177,7 @@ def run_ens_build(
         file_hashes=hashes,
     )
 
-    run = ENSBuildRun(receipt, tuple(observations), observed_head, observed_tree)
+    run = ENSBuildRun(receipt, tuple(observations), observed_head, observed_tree, environment)
     if receipt_path is not None:
         path = Path(receipt_path).resolve()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -195,6 +220,10 @@ def _main(argv: Sequence[str] | None = None) -> int:
     print(f"ENS BUILD RUN: {'VERIFIED' if run.verified else 'NOT VERIFIED'}")
     print(f"snapshot: {run.observed_head}")
     print(f"tree: {run.observed_tree}")
+    print(f"environment: {'READY' if run.environment and run.environment.ready else 'BLOCKED'}")
+    if run.environment:
+        for capability in run.environment.capabilities:
+            print(f"PREREQUISITE: {'PASS' if capability.available else 'FAIL'} {capability.requirement.name} [{capability.observed or 'unavailable'}] — {capability.reason}")
     print(f"receipt: {Path(args.receipt).resolve()}")
     for observation in run.commands:
         print(f"{' '.join(observation.command)} -> {observation.status} ({observation.returncode})")
@@ -217,5 +246,6 @@ __all__ = [
     "ENSBuildRun",
     "CommandObservation",
     "expected_build_inputs",
+    "preflight_ens_environment",
     "run_ens_build",
 ]
