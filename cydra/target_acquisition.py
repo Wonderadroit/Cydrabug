@@ -70,17 +70,23 @@ class TargetAcquisitionPlan:
         return bool(self.in_scope_candidates) and not self.unresolved_assets
 
 
-class _TableCellParser(HTMLParser):
-    """Small dependency-free parser for authoritative HTML table cells."""
+class _TableParser(HTMLParser):
+    """Dependency-free parser that preserves HTML table row/column structure."""
 
     def __init__(self) -> None:
         super().__init__()
+        self.in_row = False
         self.in_cell = False
-        self.cells: list[str] = []
+        self.rows: list[list[str]] = []
+        self._row: list[str] = []
         self._buffer: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag.lower() in {"td", "th"}:
+        tag = tag.lower()
+        if tag == "tr":
+            self.in_row = True
+            self._row = []
+        elif tag in {"td", "th"} and self.in_row:
             self.in_cell = True
             self._buffer = []
 
@@ -89,11 +95,17 @@ class _TableCellParser(HTMLParser):
             self._buffer.append(data)
 
     def handle_endtag(self, tag: str) -> None:
-        if tag.lower() in {"td", "th"} and self.in_cell:
+        tag = tag.lower()
+        if tag in {"td", "th"} and self.in_cell:
             value = re.sub(r"\s+", " ", " ".join(self._buffer)).strip()
-            self.cells.append(value)
+            self._row.append(value)
             self.in_cell = False
             self._buffer = []
+        elif tag == "tr" and self.in_row:
+            if self._row:
+                self.rows.append(self._row)
+            self.in_row = False
+            self._row = []
 
 
 def _visible_text(content: str) -> str:
@@ -104,44 +116,49 @@ def _visible_text(content: str) -> str:
 
 
 def _extract_asset_names(content: str) -> tuple[str, ...]:
-    """Extract declared scope asset names without embedding program-specific names."""
-    parser = _TableCellParser()
+    """Extract asset names only from the authoritative asset table structure."""
+    parser = _TableParser()
     try:
         parser.feed(content)
     except Exception:
-        parser.cells = []
+        parser.rows = []
 
     names: list[str] = []
-    # Immunefi scope tables are Target | Name | Added on. Once the Name
-    # column is encountered, every third cell is the target name until the
-    # next major scope table. This is structural evidence, not target naming.
-    cells = parser.cells
-    for index, cell in enumerate(cells):
-        if cell.lower() == "name" and index > 0:
-            for candidate in cells[index + 1 :]:
-                if candidate.lower() in {"added on", "target", "name", "impacts in scope"}:
-                    continue
-                if re.fullmatch(r"\d{1,2}\s+[A-Za-z]+\s+\d{4}", candidate):
-                    continue
-                if candidate and candidate not in names:
-                    names.append(candidate)
-                if len(names) >= 1 and candidate.lower() == "target":
-                    break
-            if names:
-                break
+    for row_index, row in enumerate(parser.rows):
+        normalized = [cell.lower() for cell in row]
+        if "name" not in normalized or "target" not in normalized:
+            continue
+        name_index = normalized.index("name")
+        # Only consume rows after the matching header and only the same column.
+        for candidate_row in parser.rows[row_index + 1 :]:
+            if len(candidate_row) <= name_index:
+                continue
+            candidate = candidate_row[name_index].strip()
+            if not candidate or candidate.lower() in {"name", "target", "added on"}:
+                continue
+            if re.fullmatch(r"\d{1,2}\s+[A-Za-z]+\s+\d{4}", candidate):
+                continue
+            if candidate not in names:
+                names.append(candidate)
+        if names:
+            break
 
-    # Fallback for fetched/sanitized content where HTML table cells are gone.
+    # Fallback for fetched/sanitized content where table structure is absent.
+    # Restrict extraction to the Assets in Scope section and require the
+    # publication date marker, so known-issue rows/impacts cannot become assets.
     if not names:
         text = _visible_text(content)
-        marker = re.search(r"Assets in Scope(.*?)(?:Impacts in Scope|Public Disclosure|Out of scope)", text, re.I)
-        if marker:
-            section = marker.group(1)
-            names.extend(
-                dict.fromkeys(
-                    m.group(1).strip()
-                    for m in re.finditer(r"(?:Target\s+)?Name\s+(.+?)\s+(?:Added on\s+)?\d{1,2}\s+[A-Za-z]+\s+\d{4}", section, re.I)
-                )
-            )
+        marker = re.search(
+            r"Assets in Scope(.*?)(?:Impacts in Scope|Public Disclosure|Out of scope)",
+            text,
+            re.I,
+        )
+        section = marker.group(1) if marker else ""
+        pattern = re.compile(
+            r"(?:Target\s+)?Name\s+(.+?)\s+Added on\s+\d{1,2}\s+[A-Za-z]+\s+\d{4}",
+            re.I,
+        )
+        names.extend(dict.fromkeys(match.group(1).strip() for match in pattern.finditer(section)))
 
     return tuple(names)
 
@@ -172,7 +189,7 @@ def extract_scope_evidence(scope_resource: ProgramResource, content: str) -> Sco
     return ScopeEvidence(
         source_resource_id=scope_resource.resource_id,
         path_hints=tuple(sorted(hints)),
-        basis="authoritative Immunifi scope material; path hints are evidence, not identity",
+        basis="authoritative Immunefi scope material; path hints are evidence, not identity",
         assets=assets,
     )
 
