@@ -7,7 +7,7 @@ from cydra.ens_build_identity import (
     ENS_PNPM_WORKSPACE_SHA,
     ENS_PNPM_VERSION,
 )
-from cydra.ens_build_runner import CANONICAL_COMMANDS, run_ens_build
+from cydra.ens_build_runner import CANONICAL_COMMANDS, preflight_ens_environment, run_ens_build
 
 
 HASHES = {
@@ -49,6 +49,11 @@ def _fake_tools(monkeypatch, head, tree, clean=True, hashes=None):
 
     monkeypatch.setattr("cydra.ens_build_runner.shutil.which", fake_which)
     monkeypatch.setattr("cydra.ens_build_runner.subprocess.run", fake_run)
+    monkeypatch.setattr("cydra.target_environment.shutil.which", fake_which)
+    monkeypatch.setattr(
+        "cydra.target_environment._version",
+        lambda executable: "v22.23.2" if executable == "node" else ENS_PNPM_VERSION,
+    )
 
 
 def _make_checkout(tmp_path: Path):
@@ -58,12 +63,53 @@ def _make_checkout(tmp_path: Path):
     return tmp_path
 
 
+def test_preflight_reports_authoritative_ens_tools_without_running_build(monkeypatch, tmp_path):
+    target = _make_checkout(tmp_path)
+    _fake_tools(
+        monkeypatch,
+        "cda79acaad59711b943fc68207ebb3f1d0ff8596",
+        "8e0d79dac1ab4b4fdb80d6afed810087ae9f00ba",
+        hashes=HASHES,
+    )
+
+    report = preflight_ens_environment(target)
+
+    assert report.ready
+    assert [(c.requirement.name, c.available) for c in report.capabilities] == [
+        ("node", True),
+        ("pnpm", True),
+    ]
+
+
+def test_runner_does_not_execute_contest_commands_when_required_tool_missing(monkeypatch, tmp_path):
+    target = _make_checkout(tmp_path)
+    calls = []
+
+    monkeypatch.setattr("cydra.target_environment.shutil.which", lambda name: None)
+    monkeypatch.setattr("cydra.target_environment._version", lambda executable: None)
+    monkeypatch.setattr("cydra.ens_build_runner.shutil.which", lambda name: calls.append(name) or f"/usr/bin/{name}")
+
+    def unexpected_run(*args, **kwargs):
+        calls.append("EXECUTED")
+        raise AssertionError("canonical contest command executed despite failed preflight")
+
+    monkeypatch.setattr("cydra.ens_build_runner.subprocess.run", unexpected_run)
+
+    run = run_ens_build(target)
+
+    assert not run.verified
+    assert run.commands == ()
+    assert not run.environment.ready
+    assert run.environment.missing_required == ("node", "pnpm")
+    assert "EXECUTED" not in calls
+
+
 def test_runner_produces_verified_receipt_from_matching_observations(monkeypatch, tmp_path):
     target = _make_checkout(tmp_path)
     _fake_tools(
         monkeypatch,
         "cda79acaad59711b943fc68207ebb3f1d0ff8596",
-        "8e0d79dac1ab4b4fdb80d6afed8100879ae9f00ba",
+        "8e0d79dac1ab4b4fdb80d6afed810087ae9f00ba",
         hashes=HASHES,
     )
 
@@ -79,7 +125,7 @@ def test_runner_executes_only_canonical_commands_and_persists_receipt(monkeypatc
     _fake_tools(
         monkeypatch,
         "cda79acaad59711b943fc68207ebb3f1d0ff8596",
-        "8e0d79dac1ab4b4fdb80d6afed8100879ae9f00ba",
+        "8e0d79dac1ab4b4fdb80d6afed810087ae9f00ba",
         hashes=HASHES,
     )
 
@@ -97,7 +143,7 @@ def test_runner_stops_at_first_failed_canonical_command(monkeypatch, tmp_path):
     _fake_tools(
         monkeypatch,
         "cda79acaad59711b943fc68207ebb3f1d0ff8596",
-        "8e0d79dac1ab4b4fdb80d6afed8100879ae9f00ba",
+        "8e0d79dac1ab4b4fdb80d6afed810087ae9f00ba",
         hashes=HASHES,
     )
 
