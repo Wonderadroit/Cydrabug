@@ -154,6 +154,7 @@ def run_ens_build(
     worktree_clean = _git(root, "status", "--porcelain") == ""
     node_version = _tool_version(root, ("node", "--version"))
     pnpm_version = _tool_version(root, ("pnpm", "--version"))
+    tsgo_version = _tool_version(root, ("tsgo", "--version"))
     hashes: Mapping[str, str] = {name: _git_blob_sha(root, name) for name in BUILD_INPUTS}
 
     observations: list[CommandObservation] = []
@@ -168,6 +169,7 @@ def run_ens_build(
     receipt = build_receipt_from_observations(
         node_version=node_version,
         pnpm_version=pnpm_version,
+        tsgo_version=tsgo_version,
         frozen_install_exit_code=by_name.get("pnpm install --frozen-lockfile", 127),
         check_exit_code=by_name.get("pnpm check", 127),
         manager_build_exit_code=by_name.get("pnpm build:manager", 127),
