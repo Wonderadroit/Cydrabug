@@ -25,7 +25,6 @@ class CapabilityProbe:
     diagnostic: str | None
 
 
-
 def _local_candidates(root: Path, name: str) -> tuple[Path, ...]:
     """Return deterministic project-local executable candidates.
 
@@ -55,6 +54,36 @@ def resolve_executable(root: str | Path, name: str) -> str | None:
     return shutil.which(name)
 
 
+def _probe_command(executable: str, root: Path) -> subprocess.CompletedProcess[str]:
+    """Run a read-only version probe, with a shell fallback for local scripts.
+
+    Some mobile/Termux-like environments expose an executable local script whose
+    shebang interpreter cannot be resolved through the host kernel. When direct
+    execution raises ``ENOENT``, retry through ``sh`` so CYDRA observes the
+    script's real exit status instead of misclassifying it as an absent tool.
+    """
+    try:
+        return subprocess.run(
+            [executable, "--version"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except OSError as exc:
+        if exc.errno != 2:
+            raise
+        return subprocess.run(
+            ["sh", executable, "--version"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+
+
 def probe_executable(root: str | Path, name: str) -> CapabilityProbe:
     """Probe a resolved executable and preserve the distinction between states.
 
@@ -62,18 +91,12 @@ def probe_executable(root: str | Path, name: str) -> CapabilityProbe:
     that exists but exits non-zero, panics, or cannot be launched is not reported as
     missing. Diagnostic output is bounded so capability evidence remains durable.
     """
+    root = Path(root).resolve()
     executable = resolve_executable(root, name)
     if executable is None:
         return CapabilityProbe(name, None, "MISSING", None, None, "executable not found")
     try:
-        result = subprocess.run(
-            [executable, "--version"],
-            cwd=Path(root).resolve(),
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )
+        result = _probe_command(executable, root)
     except subprocess.TimeoutExpired as exc:
         return CapabilityProbe(name, executable, "UNUSABLE", None, 124, f"version probe timed out: {exc}")
     except OSError as exc:
