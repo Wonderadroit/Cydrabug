@@ -125,14 +125,24 @@ def _asset_tokens(value: str) -> set[str]:
     return set(re.sub(r"[^a-z0-9]+", " ", value.lower()).split())
 
 
+def _meaningful_tokens(value: str) -> set[str]:
+    return _asset_tokens(value) - _GENERIC_ASSET_TOKENS
+
+
 def _label_matches_asset(label: str, asset_name: str) -> bool:
-    """Match explicit labels without generic words creating cross-bindings."""
-    label_tokens = _asset_tokens(label) - _GENERIC_ASSET_TOKENS
-    asset_tokens = _asset_tokens(asset_name) - _GENERIC_ASSET_TOKENS
-    if label_tokens & asset_tokens:
+    """Require a label's meaningful identity to match the asset identity exactly."""
+    label_tokens = _meaningful_tokens(label)
+    asset_tokens = _meaningful_tokens(asset_name)
+    if label_tokens == asset_tokens:
         return True
     aliases = {"explorer": {"portal"}, "worker": {"workers", "worker"}}
-    return any(token in aliases.get(asset_token, set()) for asset_token in asset_tokens for token in label_tokens)
+    expanded_label = {token for token in label_tokens}
+    expanded_asset = {token for token in asset_tokens}
+    for token in tuple(expanded_label):
+        expanded_label.update(aliases.get(token, set()))
+    for token in tuple(expanded_asset):
+        expanded_asset.update(aliases.get(token, set()))
+    return expanded_label == expanded_asset
 
 
 def _extract_asset_names(content: str) -> tuple[str, ...]:
@@ -180,24 +190,20 @@ def _extract_asset_names(content: str) -> tuple[str, ...]:
 
 
 def _asset_matches_hint(asset: ScopeAssetEvidence | str, hint: str) -> bool:
-    """Conservatively associate an asset with a path when evidence overlaps."""
+    """Conservatively associate an asset with a path when their meaningful identities match."""
     asset_name = asset.asset_name if isinstance(asset, ScopeAssetEvidence) else asset
-    normalized_name = _asset_tokens(asset_name) - _GENERIC_ASSET_TOKENS
-    path_tokens = _asset_tokens(hint)
+    asset_tokens = _meaningful_tokens(asset_name)
+    path_tokens = _meaningful_tokens(hint)
+    if asset_tokens == path_tokens:
+        return True
     aliases = {"explorer": {"portal"}, "worker": {"workers", "worker"}}
-    for token in normalized_name:
-        if token in path_tokens:
-            if token in {"manager", "transaction", "smart", "account", "explorer", "worker", "workers"}:
-                if token == "manager" and hint.startswith("packages/"):
-                    continue
-                if token == "transaction" and not hint.startswith("packages/"):
-                    continue
-                if token in {"worker", "workers"} and not hint.startswith("workers/"):
-                    continue
-            return True
-        if path_tokens & aliases.get(token, set()):
-            return True
-    return False
+    expanded_asset = set(asset_tokens)
+    expanded_path = set(path_tokens)
+    for token in tuple(expanded_asset):
+        expanded_asset.update(aliases.get(token, set()))
+    for token in tuple(expanded_path):
+        expanded_path.update(aliases.get(token, set()))
+    return expanded_asset == expanded_path
 
 
 def _asset_path_associations(content: str, assets: tuple[str, ...], hints: tuple[str, ...]) -> dict[str, tuple[str, ...]]:
