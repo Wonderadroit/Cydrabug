@@ -52,11 +52,25 @@ function lineOf(node) {
 
 function compilerOptions() {
   const configPath = ts.findConfigFile(targetRoot, ts.sys.fileExists, "tsconfig.json");
-  if (!configPath) return {};
-  const raw = ts.readConfigFile(configPath, ts.sys.readFile);
-  if (raw.error) return {};
-  const parsed = ts.parseJsonConfigFileContent(raw.config, ts.sys, path.dirname(configPath));
-  return parsed.options;
+  let options = {};
+
+  if (configPath) {
+    const raw = ts.readConfigFile(configPath, ts.sys.readFile);
+    if (!raw.error) {
+      const parsed = ts.parseJsonConfigFileContent(raw.config, ts.sys, path.dirname(configPath));
+      options = parsed.options;
+    }
+  }
+
+  if (
+    input.files.some((item) =>
+      [".js", ".jsx", ".mjs", ".cjs"].includes(path.extname(item.path).toLowerCase()),
+    )
+  ) {
+    options.allowJs = true;
+  }
+
+  return options;
 }
 
 const options = compilerOptions();
@@ -234,13 +248,13 @@ function visit(node) {
 
 for (const item of input.files) {
   const absolutePath = path.resolve(targetRoot, item.path);
-  const sourceFile = program.getSourceFile(absolutePath) || ts.createSourceFile(
-    absolutePath,
-    item.source,
-    ts.ScriptTarget.Latest,
-    true,
-    scriptKindFor(item.path),
-  );
+  const sourceFile = program.getSourceFile(absolutePath);
+  if (!sourceFile) {
+    process.stderr.write(
+      `TypeScript compiler did not admit supplied source into Program: ${absolutePath}\n`,
+    );
+    continue;
+  }
   result.push({ path: item.path, kind: "file", name: item.path, line: 1, attributes: { statements: sourceFile.statements.length } });
   visit(sourceFile);
 }
