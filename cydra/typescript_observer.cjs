@@ -76,6 +76,27 @@ function resolveImport(specifier, containingFile) {
   return resolved.resolvedModule?.resolvedFileName || null;
 }
 
+function scriptKindFor(filePath) {
+  switch (path.extname(filePath).toLowerCase()) {
+    case ".tsx":
+      return ts.ScriptKind.TSX;
+    case ".ts":
+      return ts.ScriptKind.TS;
+    case ".mts":
+      return ts.ScriptKind.MTS;
+    case ".cts":
+      return ts.ScriptKind.CTS;
+    case ".jsx":
+      return ts.ScriptKind.JSX;
+    case ".js":
+    case ".mjs":
+    case ".cjs":
+      return ts.ScriptKind.JS;
+    default:
+      return ts.ScriptKind.Unknown;
+  }
+}
+
 function visit(node) {
   const push = (kind, name, attributes = {}) => {
     result.push({ path: node.getSourceFile().fileName, kind, name, line: lineOf(node), attributes });
@@ -115,7 +136,13 @@ function visit(node) {
 
 for (const item of input.files) {
   const absolutePath = path.resolve(targetRoot, item.path);
-  const sourceFile = ts.createSourceFile(absolutePath, item.source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const sourceFile = ts.createSourceFile(
+    absolutePath,
+    item.source,
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKindFor(item.path),
+  );
   result.push({ path: item.path, kind: "file", name: item.path, line: 1, attributes: { statements: sourceFile.statements.length } });
   visit(sourceFile);
 }

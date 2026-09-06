@@ -32,6 +32,35 @@ def test_typescript_provider_normalizes_compiler_structure(monkeypatch, tmp_path
     assert observation.provenance[0].startswith("sha256:")
 
 
+def test_typescript_provider_accepts_javascript_family_sources(monkeypatch, tmp_path):
+    payload = {
+        "compiler": "typescript-compiler-api",
+        "compiler_version": "6.0.3",
+        "observations": [
+            {"path": "src/app.js", "kind": "file", "name": "src/app.js", "line": 1, "attributes": {}},
+            {"path": "src/app.js", "kind": "function", "name": "transfer", "line": 1, "attributes": {}},
+        ],
+    }
+
+    captured = {}
+
+    def run(*args, **kwargs):
+        captured["input"] = json.loads(kwargs["input"])
+        return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+
+    monkeypatch.setattr("cydra.typescript_provider.subprocess.run", run)
+
+    provider = TypeScriptCompilerProvider(tmp_path)
+    observations = tuple(provider.observe(
+        ["src/app.js"], {"src/app.js": "function transfer() {}"}
+    ))
+
+    assert captured["input"]["files"] == [
+        {"path": "src/app.js", "source": "function transfer() {}"}
+    ]
+    assert any(o.kind is SourceObservationKind.FUNCTION for o in observations)
+
+
 def test_typescript_provider_binds_resolved_import_to_supplied_file(monkeypatch, tmp_path):
     payload = {
         "compiler": "typescript-compiler-api",

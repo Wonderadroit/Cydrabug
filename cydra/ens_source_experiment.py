@@ -1,4 +1,4 @@
-"""Narrow ENS experiment for measuring compiler-backed source reconstruction."""
+"""Narrow ENS experiment for measuring compiler-backed TypeScript-family source reconstruction."""
 from __future__ import annotations
 
 from collections import Counter
@@ -70,7 +70,7 @@ def run_ens_source_observation_experiment(
     sources: dict[str, str] = {}
     for relative in paths:
         source_path = root / relative
-        if source_path.is_file() and source_path.suffix in {".ts", ".tsx", ".mts", ".cts"}:
+        if source_path.is_file() and source_path.suffix in {".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"}:
             sources[relative] = source_path.read_text(encoding="utf-8")
 
     provider = TypeScriptCompilerProvider(root, scope_resolver=_scope_resolver)
@@ -129,7 +129,7 @@ def run_ens_source_observation_experiment(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Measure ENS TypeScript source observations")
+    parser = argparse.ArgumentParser(description="Measure ENS TypeScript-family source observations")
     parser.add_argument("target_root", type=Path)
     parser.add_argument("inventory", type=Path)
     args = parser.parse_args()

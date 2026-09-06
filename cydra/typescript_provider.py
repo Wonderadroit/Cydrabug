@@ -1,4 +1,4 @@
-"""Compiler-backed TypeScript source observations for CYDRA."""
+"""Compiler-backed TypeScript-family source observations for CYDRA."""
 from __future__ import annotations
 
 import hashlib
@@ -24,7 +24,7 @@ _KIND_MAP = {kind.value: kind for kind in SourceObservationKind}
 
 
 class TypeScriptCompilerProvider:
-    """Normalize compiler-backed TypeScript/TSX structure into CYDRA observations."""
+    """Normalize compiler-backed TypeScript/JavaScript structure into CYDRA observations."""
 
     name = "typescript-compiler"
 
@@ -38,7 +38,7 @@ class TypeScriptCompilerProvider:
         files = [
             {"path": path, "source": sources[path]}
             for path in sorted(set(paths))
-            if path in sources and Path(path).suffix in {".ts", ".tsx", ".mts", ".cts"}
+            if path in sources and Path(path).suffix in {".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"}
         ]
         if not files:
             return ()
