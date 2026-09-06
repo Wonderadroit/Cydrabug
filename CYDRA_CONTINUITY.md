@@ -40,10 +40,10 @@ Do not write speculative future results into the checkpoint.
 Build CYDRA's reusable source-understanding boundary against the live ENS Audit Competition without turning the TypeScript adapter into a project-specific parser or a vulnerability oracle.
 
 ### Current boundary
-`frozen ENS source inventory → language/toolchain admission → compiler-backed observations → normalized SourceObservation → canonical SystemModel`
+`compiler-backed source observations → TypeChecker symbol identities → trustworthy intra-system call relationships → canonical SystemModel`
 
 ### Last verified runtime result
-The ENS source observation experiment completed successfully in the correctly configured PRoot Ubuntu environment:
+Before the current implementation change, the ENS source observation experiment completed successfully in the correctly configured PRoot Ubuntu environment:
 
 - compiler_version: `6.0.3`
 - inventory_files: `1746`
@@ -57,14 +57,15 @@ The ENS source observation experiment completed successfully in the correctly co
 - resolved_exports: `160`
 - unresolved_exports: `1`
 - internal_relationships: `2293`
-- external_resolutions: `3805`
 
-### Meaning of the result
-The source-admission boundary is now closed for the frozen 1,746-file inventory: all 1,746 inventoried files reached the provider.
+The current symbol-identity implementation has **not yet been runtime-validated against the ENS target**, so no new call-relationship coverage number is claimed.
 
-The provider is producing substantial compiler-backed structural evidence rather than the earlier zero-observation result caused by environment/inventory mistakes.
+### Meaning of the previous result
+The source-admission boundary was closed for the frozen 1,746-file inventory: all 1,746 inventoried files reached the provider.
 
-The `call` count is an observation count, not a count of verified caller/callee relationships. Do not infer security semantics from the count.
+The provider was producing substantial compiler-backed structural evidence rather than the earlier zero-observation result caused by environment/inventory mistakes.
+
+The `call` count was an observation count, not a count of verified caller/callee relationships. The current implementation now attempts to establish those identities through the TypeScript TypeChecker, but this remains to be measured.
 
 The unresolved import/export counts are preserved uncertainty, not automatic defects.
 
@@ -95,65 +96,82 @@ CYDRA uses one language-neutral source observation contract with ecosystem/langu
 
 It does **not** use one universal parser.
 
-The TypeScript observer should remain reusable across TypeScript/JavaScript projects and should use target-native compiler/configuration semantics. Other languages should receive their own strongest native/specialized observation path when needed.
+The TypeScript observer remains reusable across TypeScript/JavaScript projects and uses target-native compiler/configuration semantics. Other languages should receive their own strongest native/specialized observation path when needed.
+
+### Current semantic relationship rule
+Function and method observations may carry TypeScript compiler symbol identities. Call observations may carry compiler-resolved caller/callee identities.
+
+A `calls` relationship is created only when:
+
+1. the TypeChecker supplies caller and callee symbol identities;
+2. both identities map to supplied function observations;
+3. the relationship records the originating call observation as evidence;
+4. the relationship basis is explicitly identified as TypeChecker symbol identity.
+
+External, dynamic, ambiguous, or otherwise unresolved calls remain observations with explicit relationship-status attributes. Expression text is never semantic proof.
 
 ### Current canonical-model rule
 The canonical model does not have generic `call`, `export`, or `type` node kinds.
 
 Those facts are preserved as canonical `observation` nodes with `source_observation_kind` rather than being silently dropped or promoted into unsupported semantic relationships.
 
-In particular, compiler-observed calls must not become `calls` edges unless the observer establishes the relevant caller/callee identities.
+Compiler-established `calls` relationships connect canonical function observations through the existing source-relationship projection; they do not turn call observations themselves into a generic semantic node kind.
+
+### Files/components involved
+- `cydra/typescript_observer.cjs`
+- `cydra/typescript_provider.py`
+- `cydra/source_provider.py`
+- `cydra/source_ingestion.py`
+- `cydra/system_model.py`
+- `cydra/ens_source_experiment.py`
+- `tests/test_typescript_provider.py`
+
+### Current implementation state
+The TypeScript observer now constructs a compiler `Program` over the supplied source set and uses the target compiler's `TypeChecker` for symbol identity. The provider performs a second-pass identity join before projecting relationships.
+
+This implementation is committed on `live-immunefi-work` together with the regression definitions and experiment metrics. The full test suite and ENS runtime experiment have not yet been rerun after the implementation change.
 
 ### NEXT ACTION
-Do not immediately build another parser or start vulnerability hunting.
+Run the focused TypeScript provider tests first.
 
-First inspect the completed 62,758-observation model and determine whether the next useful capability is **semantic relationship enrichment from compiler-backed symbol identity**.
-
-The highest-value next boundary is likely:
-
-`compiler-backed source observations → resolved symbol identities → trustworthy intra-system relationships → security-reasoning-ready SystemModel`
-
-The first candidate is call relationships, because the experiment currently has `45,137` call observations but only `2,293` explicit internal relationships. However, this must be investigated rather than assumed: use TypeScript's `TypeChecker`/symbol APIs to establish caller/callee identity where the compiler can do so, preserve unresolved calls as observations, and measure the resulting relationship coverage.
-
-### Resume command
-From the correctly configured PRoot Ubuntu guest:
+If they pass, rerun the ENS source experiment in the correctly configured PRoot Ubuntu target environment:
 
 ```bash
 cd /workspace/cydrabug
 python -m cydra.ens_source_experiment /workspace/target .cydra/ens-source-files-target.txt
 ```
 
-Use this only to reproduce/compare the baseline. Do not treat identical reruns as independent variant validation.
+Compare the resulting:
 
-### Before implementing call-identity enrichment
-Inspect:
+- `call_observations`
+- `internally_resolved_call_observations`
+- `internal_call_relationships`
+- `internal_relationships`
+- `edge_count`
 
-- `cydra/typescript_observer.cjs`
-- `cydra/typescript_provider.py`
-- `cydra/source_provider.py`
-- `cydra/source_ingestion.py`
-- `cydra/system_model.py`
-- `tests/test_typescript_provider.py`
-- `tests/test_source_ingestion.py`
-- `cydra/ens_source_experiment.py`
+against the previous baseline of 45,137 call observations and 2,293 internal relationships.
 
-Define the regression proof first:
+Then inspect representative resolved relationships and any compiler-resolution failures before deciding whether further semantic enrichment is justified.
 
-1. a compiler-backed call observation remains present;
-2. resolved caller/callee symbols become explicit relationships only when TypeChecker establishes them;
-3. unresolved/dynamic/ambiguous calls remain observations;
-4. relationship provenance points to the compiler observation and source revision;
-5. no security conclusion is emitted merely because a call relationship exists;
-6. baseline metrics remain reproducible and comparable.
+### Expected result
+A useful result is not necessarily high coverage. The required property is correctness:
+
+- direct compiler-resolved internal calls produce explicit caller→callee relationships;
+- external calls do not become internal relationships;
+- dynamic/ambiguous/unresolved calls remain observations;
+- relationship provenance identifies the call observation and TypeChecker basis;
+- baseline source-admission metrics remain comparable.
 
 ### MUST NOT CLAIM YET
 - exact ENS audited-source identity is verified;
 - the 62,758 observations are a complete semantic model;
 - all 45,137 calls have known callees;
-- unresolved imports are vulnerabilities;
+- any particular new call-relationship coverage percentage is verified;
+- unresolved imports/calls are vulnerabilities;
 - the ENS target is ready for active vulnerability testing;
 - any security finding exists;
-- any compiler observation establishes authorization or bounty eligibility.
+- any compiler observation establishes authorization or bounty eligibility;
+- the new symbol-identity implementation is runtime-validated until the focused tests and ENS experiment pass.
 
 ## Live-contest safety boundary
 
