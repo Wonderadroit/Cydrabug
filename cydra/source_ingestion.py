@@ -7,6 +7,23 @@ from .source_provider import SourceObservation, SourceProvider
 from .system_model import Edge, Node, SystemModel
 
 
+_CANONICAL_KIND_MAP = {
+    "file": "file",
+    "module": "module",
+    "function": "function",
+    "class": "class",
+    "type": "observation",
+    "import": "import",
+    "export": "export",
+    "entry_point": "entry_point",
+    "state": "state_variable",
+    "authorization": "authorization",
+    "external_boundary": "trust_boundary",
+    "call": "observation",
+    "data_flow": "data_flow",
+}
+
+
 def project_source_observations(observations: Iterable[SourceObservation], system: SystemModel | None = None) -> SystemModel:
     """Ingest observations and only project relationships explicitly established by providers."""
     system = system or SystemModel()
@@ -14,6 +31,11 @@ def project_source_observations(observations: Iterable[SourceObservation], syste
 
     for observation in materialized:
         attributes = dict(observation.attributes)
+        canonical_kind = _CANONICAL_KIND_MAP.get(observation.kind.value)
+        if canonical_kind is None:
+            raise ValueError(f"unsupported source observation kind: {observation.kind.value}")
+        if canonical_kind != observation.kind.value:
+            attributes["source_observation_kind"] = observation.kind.value
         attributes.update(
             path=observation.path,
             provider=observation.provider,
@@ -26,7 +48,7 @@ def project_source_observations(observations: Iterable[SourceObservation], syste
         if observation.tool_version is not None:
             attributes["tool_version"] = observation.tool_version
         if observation.observation_id not in system.nodes:
-            system.add_node(Node(observation.observation_id, observation.kind.value, observation.name, attributes))
+            system.add_node(Node(observation.observation_id, canonical_kind, observation.name, attributes))
 
     node_ids = {observation.observation_id for observation in materialized}
     for observation in materialized:
