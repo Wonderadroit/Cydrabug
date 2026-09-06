@@ -194,17 +194,21 @@ def _asset_matches_hint(asset: ScopeAssetEvidence | str, hint: str) -> bool:
     asset_name = asset.asset_name if isinstance(asset, ScopeAssetEvidence) else asset
     asset_tokens = _meaningful_tokens(asset_name)
     path_tokens = _meaningful_tokens(hint)
-    if asset_tokens == path_tokens:
+    leaf_tokens = _meaningful_tokens(hint.rsplit("/", 1)[-1])
+    if asset_tokens == path_tokens or asset_tokens == leaf_tokens:
         return True
 
     aliases = {"explorer": {"portal"}, "worker": {"workers", "worker"}}
     expanded_asset = set(asset_tokens)
     expanded_path = set(path_tokens)
+    expanded_leaf = set(leaf_tokens)
     for token in tuple(expanded_asset):
         expanded_asset.update(aliases.get(token, set()))
     for token in tuple(expanded_path):
         expanded_path.update(aliases.get(token, set()))
-    if expanded_asset == expanded_path:
+    for token in tuple(expanded_leaf):
+        expanded_leaf.update(aliases.get(token, set()))
+    if expanded_asset == expanded_path or expanded_asset == expanded_leaf:
         return True
 
     # A plural category asset may name a compound path whose leaf contains
@@ -215,7 +219,6 @@ def _asset_matches_hint(asset: ScopeAssetEvidence | str, hint: str) -> bool:
         asset_token = next(iter(asset_tokens))
         if asset_token.endswith("s") and len(asset_token) > 1:
             singular = asset_token[:-1]
-            leaf_tokens = _meaningful_tokens(hint.rsplit("/", 1)[-1])
             if singular in leaf_tokens:
                 return True
     return False
