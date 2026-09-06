@@ -75,6 +75,7 @@ def resolve_source_identity(
 
     candidates = tuple(candidates)
     evidence: list[SourceEvidence] = []
+    contradictory_candidates: list[SourceCandidate] = []
 
     for candidate in candidates:
         if candidate.contradictory_identity:
@@ -84,6 +85,7 @@ def resolve_source_identity(
                 "candidate contains evidence contradicting the advertised source identity",
                 False,
             ))
+            contradictory_candidates.append(candidate)
             continue
 
         exact_object = candidate.advertised_revision_available
@@ -92,6 +94,19 @@ def resolve_source_identity(
             and candidate.observed_revision.strip().lower() == revision
         )
         exact_head = candidate.observed_head_matches and observed_revision_matches
+
+        # A positive HEAD-match claim paired with a different observed revision is
+        # itself contradictory evidence. Do not let the positive flag conceal the
+        # stronger observed identity mismatch.
+        if candidate.observed_head_matches and not observed_revision_matches:
+            evidence.append(SourceEvidence(
+                EvidenceKind.IDENTITY_CONTRADICTION,
+                candidate.locator,
+                "candidate claims an exact HEAD match but its observed revision differs from the advertised revision",
+                False,
+            ))
+            contradictory_candidates.append(candidate)
+            continue
 
         if exact_object:
             evidence.append(SourceEvidence(
@@ -150,6 +165,12 @@ def resolve_source_identity(
         )
 
     if candidates and all(c.contradictory_identity for c in candidates):
+        return SourceIdentityResolution(
+            revision, LineageStatus.MISMATCH, None, False, tuple(evidence),
+            "all discovered source candidates contradict the advertised identity",
+        )
+
+    if contradictory_candidates and len(contradictory_candidates) == len(candidates):
         return SourceIdentityResolution(
             revision, LineageStatus.MISMATCH, None, False, tuple(evidence),
             "all discovered source candidates contradict the advertised identity",
