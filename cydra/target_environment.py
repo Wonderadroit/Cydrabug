@@ -11,9 +11,10 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import re
-import shutil
 import subprocess
 from typing import Iterable
+
+from .toolchain_capability import observe_version
 
 
 @dataclass(frozen=True)
@@ -163,9 +164,6 @@ def _workflow_value(text: str, action: str, key: str) -> str | None:
     match = action_re.search(text)
     if not match:
         return None
-
-    # Read until the next action declaration. This intentionally does not try
-    # to parse all YAML; it only binds the requested key to the matching action.
     remainder = text[match.end():]
     next_action = re.search(r"^\s*-?\s*uses:\s*[^\n]+$", remainder, re.I | re.M)
     body = remainder[: next_action.start()] if next_action else remainder
@@ -201,18 +199,6 @@ def discover_requirements(root: str | Path) -> tuple[TargetRequirement, ...]:
     for item in found:
         unique[(item.name, item.kind, item.version, item.source, item.purpose)] = item
     return tuple(unique.values())
-
-
-def _version(executable: str) -> str | None:
-    path = shutil.which(executable)
-    if path is None:
-        return None
-    try:
-        result = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=15, check=False)
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    text = (result.stdout or result.stderr).strip()
-    return text.splitlines()[0][:500] if result.returncode == 0 and text else None
 
 
 def _numeric_version(value: str) -> tuple[int, ...] | None:
@@ -262,7 +248,7 @@ def verify_requirements(root: str | Path, requirements: Iterable[TargetRequireme
             available = (root / requirement.name).is_file()
             observed = "present" if available else None
         else:
-            observed = _version(requirement.name)
+            observed = observe_version(root, requirement.name)
             available = _matches_version(observed, requirement.version)
         if available:
             reason = "declared target requirement satisfied"
