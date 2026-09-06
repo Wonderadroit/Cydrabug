@@ -131,9 +131,9 @@ class TypeScriptCompilerProvider:
                 relationships=relationships,
             ))
 
-        # Bind call observations to function observations only when the compiler
-        # supplied symbol identities for both the caller and callee. Expression
-        # text alone is deliberately insufficient evidence for a semantic edge.
+        # Resolve semantic call relationships in a second pass. A call edge is
+        # created only when TypeChecker symbol identity maps both endpoints to
+        # supplied function observations. Expression text is never sufficient.
         symbol_to_function_id: dict[tuple[str, str], str] = {}
         for observation in observations:
             if observation.kind is not SourceObservationKind.FUNCTION:
@@ -142,10 +142,10 @@ class TypeScriptCompilerProvider:
             if key is not None:
                 symbol_to_function_id.setdefault(key, observation.observation_id)
 
-        enriched: list[SourceObservation] = []
+        relationship_updates: dict[str, list[SourceRelationship]] = {}
+        attribute_updates: dict[str, dict[str, object]] = {}
         for observation in observations:
             if observation.kind is not SourceObservationKind.CALL:
-                enriched.append(observation)
                 continue
 
             attributes = dict(observation.attributes)
@@ -154,25 +154,19 @@ class TypeScriptCompilerProvider:
             caller_id = symbol_to_function_id.get(caller_key) if caller_key else None
             callee_id = symbol_to_function_id.get(callee_key) if callee_key else None
 
-            if caller_key and caller_id:
-                attributes["caller_relationship_status"] = "RESOLVED_INTERNAL"
-            elif caller_key:
-                attributes["caller_relationship_status"] = "RESOLVED_EXTERNAL"
-            else:
-                attributes["caller_relationship_status"] = "UNRESOLVED"
-
-            if callee_key and callee_id:
-                attributes["callee_relationship_status"] = "RESOLVED_INTERNAL"
-            elif callee_key:
-                attributes["callee_relationship_status"] = "RESOLVED_EXTERNAL"
-            else:
-                attributes["callee_relationship_status"] = "UNRESOLVED"
+            attributes["caller_relationship_status"] = (
+                "RESOLVED_INTERNAL" if caller_id else
+                "RESOLVED_EXTERNAL" if caller_key else
+                "UNRESOLVED"
+            )
+            attributes["callee_relationship_status"] = (
+                "RESOLVED_INTERNAL" if callee_id else
+                "RESOLVED_EXTERNAL" if callee_key else
+                "UNRESOLVED"
+            )
 
             if caller_id and callee_id:
-                caller_observation = next(
-                    item for item in observations if item.observation_id == caller_id
-                )
-                relationship = SourceRelationship(
+                relationship_updates.setdefault(caller_id, []).append(SourceRelationship(
                     relation="calls",
                     target_observation_id=callee_id,
                     attributes={
@@ -181,26 +175,15 @@ class TypeScriptCompilerProvider:
                         "caller_symbol": caller_key[0],
                         "callee_symbol": callee_key[0],
                     },
-                )
-                caller_relationships = tuple(caller_observation.relationships) + (relationship,)
-                observations = [
-                    SourceObservation(
-                        observation_id=item.observation_id,
-                        kind=item.kind,
-                        path=item.path,
-                        name=item.name,
-                        attributes=item.attributes,
-                        provider=item.provider,
-                        tool=item.tool,
-                        tool_version=item.tool_version,
-                        strength=item.strength,
-                        provenance=item.provenance,
-                        scope_state=item.scope_state,
-                        relationships=caller_relationships if item.observation_id == caller_id else item.relationships,
-                    )
-                    for item in observations
-                ]
+                ))
+            attribute_updates[observation.observation_id] = attributes
 
+        enriched: list[SourceObservation] = []
+        for observation in observations:
+            attributes = attribute_updates.get(observation.observation_id, dict(observation.attributes))
+            relationships = observation.relationships
+            if observation.observation_id in relationship_updates:
+                relationships = relationships + tuple(relationship_updates[observation.observation_id])
             enriched.append(SourceObservation(
                 observation_id=observation.observation_id,
                 kind=observation.kind,
@@ -213,7 +196,7 @@ class TypeScriptCompilerProvider:
                 strength=observation.strength,
                 provenance=observation.provenance,
                 scope_state=observation.scope_state,
-                relationships=observation.relationships,
+                relationships=relationships,
             ))
 
         return tuple(enriched)
