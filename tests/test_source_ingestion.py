@@ -48,3 +48,38 @@ def test_ingest_source_provider_connects_provider_to_canonical_model():
     system = ingest_source_provider(Provider(), ["src/app.ts"], {"src/app.ts": "export const x = 1;"})
     assert "file:src/app.ts:1:src/app.ts" in system.nodes
     assert system.nodes["file:src/app.ts:1:src/app.ts"].attributes["provider"] == "test-provider"
+
+
+def test_projection_preserves_noncanonical_source_facts_as_observations():
+    observations = [
+        SourceObservation(
+            observation_id="type:src/app.ts:3:User",
+            kind=SourceObservationKind.TYPE,
+            path="src/app.ts",
+            name="User",
+            strength=ObservationStrength.COMPILER,
+        ),
+        SourceObservation(
+            observation_id="export:src/app.ts:4:User",
+            kind=SourceObservationKind.EXPORT,
+            path="src/app.ts",
+            name="User",
+            strength=ObservationStrength.COMPILER,
+        ),
+        SourceObservation(
+            observation_id="call:src/app.ts:5:transfer",
+            kind=SourceObservationKind.CALL,
+            path="src/app.ts",
+            name="transfer",
+            strength=ObservationStrength.COMPILER,
+        ),
+    ]
+
+    system = project_source_observations(observations)
+
+    assert system.nodes["type:src/app.ts:3:User"].kind == "observation"
+    assert system.nodes["type:src/app.ts:3:User"].attributes["source_observation_kind"] == "type"
+    assert system.nodes["export:src/app.ts:4:User"].kind == "observation"
+    assert system.nodes["export:src/app.ts:4:User"].attributes["source_observation_kind"] == "export"
+    assert system.nodes["call:src/app.ts:5:transfer"].kind == "observation"
+    assert system.nodes["call:src/app.ts:5:transfer"].attributes["source_observation_kind"] == "call"
