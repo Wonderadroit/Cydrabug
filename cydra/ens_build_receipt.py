@@ -21,7 +21,7 @@ from .ens_build_identity import (
 from .ens_target import AUDITED_REVISION, DEFAULT_REPOSITORY, DEFAULT_REVISION
 
 
-ENS_SNAPSHOT_TREE = "8e0d79dac293a4b4fdb80d6afed810087ae9f00ba"
+ENS_SNAPSHOT_TREE = "8e0d79dac1ab4b4fdb80d6afed810087ae9f00ba"
 
 
 @dataclass(frozen=True)
