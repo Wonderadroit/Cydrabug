@@ -2,8 +2,8 @@
 
 This module accepts evidence produced by the canonical ENS checkout/build
 workflow and verifies that the evidence is bound to the exact target snapshot
-and required Node/pnpm toolchain. It deliberately does not execute arbitrary
-target commands or infer build success from source metadata alone.
+and required Node/pnpm/tsgo toolchain. It deliberately does not execute
+arbitrary target commands or infer build success from source metadata alone.
 """
 from __future__ import annotations
 
@@ -16,11 +16,12 @@ from .ens_build_identity import (
     ENS_PNPM_LOCK_SHA,
     ENS_PNPM_VERSION,
     ENS_PNPM_WORKSPACE_SHA,
+    ENS_TSGO_VERSION,
 )
 from .ens_target import AUDITED_REVISION, DEFAULT_REPOSITORY, DEFAULT_REVISION
 
 
-ENS_SNAPSHOT_TREE = "8e0d79dac1ab4b4fdb80d6afed8100879ae9f00ba"
+ENS_SNAPSHOT_TREE = "8e0d79dac1ab4b4fdb80d6afed810087ae9f00ba"
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,7 @@ class ENSBuildReceipt:
     worktree_clean: bool
     node_version: str
     pnpm_version: str
+    tsgo_version: str
     frozen_install_exit_code: int
     check_exit_code: int
     manager_build_exit_code: int
@@ -52,7 +54,11 @@ class ENSBuildReceipt:
 
     @property
     def toolchain_verified(self) -> bool:
-        return self.node_version.startswith("v22.") and self.pnpm_version == ENS_PNPM_VERSION
+        return (
+            self.node_version.startswith("v22.")
+            and self.pnpm_version == ENS_PNPM_VERSION
+            and self.tsgo_version == ENS_TSGO_VERSION
+        )
 
     @property
     def dependency_inputs_verified(self) -> bool:
@@ -85,7 +91,7 @@ class ENSBuildReceipt:
         if not self.target_identity_verified:
             reasons.append("target identity/worktree evidence is not verified")
         if not self.toolchain_verified:
-            reasons.append("Node/pnpm toolchain evidence is not verified")
+            reasons.append("Node/pnpm/tsgo toolchain evidence is not verified")
         if not self.dependency_inputs_verified:
             reasons.append("dependency/build input hashes are not verified")
         if not self.validation_verified:
@@ -97,6 +103,7 @@ def build_receipt_from_observations(
     *,
     node_version: str,
     pnpm_version: str,
+    tsgo_version: str,
     frozen_install_exit_code: int,
     check_exit_code: int,
     manager_build_exit_code: int,
@@ -120,6 +127,7 @@ def build_receipt_from_observations(
         worktree_clean=worktree_clean,
         node_version=node_version,
         pnpm_version=pnpm_version,
+        tsgo_version=tsgo_version,
         frozen_install_exit_code=frozen_install_exit_code,
         check_exit_code=check_exit_code,
         manager_build_exit_code=manager_build_exit_code,
