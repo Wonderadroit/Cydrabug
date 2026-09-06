@@ -27,6 +27,9 @@ class ENSObservationExperimentResult:
     unresolved_exports: int
     internal_relationships: int
     external_resolutions: int
+    call_observations: int
+    internally_resolved_call_observations: int
+    internal_call_relationships: int
     compiler_version: str
 
     def as_dict(self) -> dict[str, object]:
@@ -43,6 +46,9 @@ class ENSObservationExperimentResult:
             "unresolved_exports": self.unresolved_exports,
             "internal_relationships": self.internal_relationships,
             "external_resolutions": self.external_resolutions,
+            "call_observations": self.call_observations,
+            "internally_resolved_call_observations": self.internally_resolved_call_observations,
+            "internal_call_relationships": self.internal_call_relationships,
             "compiler_version": self.compiler_version,
         }
 
@@ -103,6 +109,20 @@ def run_ens_source_observation_experiment(
         for observation in observations
     )
     internal_relationships = sum(len(observation.relationships) for observation in observations)
+    call_observations = sum(
+        observation.kind is SourceObservationKind.CALL for observation in observations
+    )
+    internally_resolved_call_observations = sum(
+        observation.kind is SourceObservationKind.CALL
+        and observation.attributes.get("callee_relationship_status") == "RESOLVED_INTERNAL"
+        and observation.attributes.get("caller_relationship_status") == "RESOLVED_INTERNAL"
+        for observation in observations
+    )
+    internal_call_relationships = sum(
+        relationship.relation == "calls"
+        for observation in observations
+        for relationship in observation.relationships
+    )
 
     compiler_versions = {
         observation.tool_version
@@ -124,6 +144,9 @@ def run_ens_source_observation_experiment(
         unresolved_exports=unresolved_exports,
         internal_relationships=internal_relationships,
         external_resolutions=external_resolutions,
+        call_observations=call_observations,
+        internally_resolved_call_observations=internally_resolved_call_observations,
+        internal_call_relationships=internal_call_relationships,
         compiler_version=compiler_version,
     )
 
