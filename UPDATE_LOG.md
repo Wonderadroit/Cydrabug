@@ -1,5 +1,39 @@
 # CYDRA UPDATE LOG
 
+## 2026-09-06 — compiler-symbol-identity-call-relationships
+
+### Change
+Extended the reusable TypeScript-family observer from call-expression observations to compiler-backed symbol identity enrichment, allowing trustworthy intra-system caller-to-callee relationships where the TypeChecker resolves both endpoints to supplied source functions.
+
+### Boundary
+`compiler-backed call observation → TypeChecker symbol identity → normalized caller/callee relationship → canonical SystemModel`
+
+### Why
+The ENS reconstruction baseline contained 45,137 call observations but the existing observer deliberately did not infer caller/callee semantics from expression text. That preserved correctness but left a measurable relationship gap. The next useful capability is therefore semantic relationship enrichment using the compiler's own symbol identity rather than lexical guessing.
+
+### Implementation
+- The TypeScript observer now constructs a compiler `Program` over the supplied source set using the target project's compiler options.
+- Supplied source text remains authoritative through the compiler host while target filesystem reads remain available for compiler/config/dependency resolution.
+- Function and method observations record compiler-resolved symbol identity where available.
+- Call observations record compiler-resolved caller and callee symbol identities where available.
+- The provider performs a second-pass identity join and creates a `calls` relationship only when both caller and callee map to supplied function observations.
+- Each resolved call relationship retains the originating call observation ID and identifies `typescript-typechecker-symbol-identity` as its relationship basis.
+- Calls with external or unresolved callees remain observations and receive explicit relationship-status attributes; expression text is never used as semantic proof.
+- The ENS experiment now measures call-observation count, internally resolved call observations, and internal call relationships separately from the broader relationship count.
+- Regression tests cover an internally resolved call, external/unresolved calls, relationship provenance, and preservation of the original call observation.
+
+### Safety semantics
+Compiler symbol resolution is observation evidence, not a security conclusion. A `calls` relationship does not establish a vulnerability, authorization, scope, impact, eligibility, or causal security property. External, dynamic, and unresolved calls remain explicitly uncertain rather than being converted into guessed edges.
+
+### Live-contest exercise
+This capability is the next source-understanding boundary for the live ENS Audit Competition reconstruction experiment. It is still source reconstruction only because exact audited-source identity remains unresolved and active-testing authority has not been established.
+
+### Validation status
+GitHub-side file changes and regression-test definitions are committed on `live-immunefi-work`. The full test suite and ENS runtime experiment have not yet been rerun against the updated observer, so no new runtime relationship-coverage claim is made from this change alone.
+
+### Next decision
+Run the focused TypeScript provider tests first. If green, rerun the ENS source experiment in the correctly configured PRoot Ubuntu target environment and compare the new call-relationship coverage against the previous 45,137-call / 2,293-relationship baseline. Inspect any compiler-resolution failures before considering further enrichment.
+
 ## 2026-09-06 — resumable-continuity-checkpoint
 
 ### Change
@@ -108,7 +142,7 @@ This boundary is exercised by the ENS TypeScript reconstruction over the frozen 
 ### Validation status
 The canonical projection repair and regression test are committed on `live-immunefi-work`. The full ENS runtime experiment must be rerun before claiming observation, relationship, or model coverage. ENS exact audited-source identity remains unresolved; this remains source reconstruction work only.
 
-## 2026-09-06 — typescript-workspace-resolution
+## 2026-09-05 — typescript-workspace-resolution
 
 ### Change
 Corrected TypeScript compiler resolution for the ENS monorepo experiment so the observer resolves the compiler from the workspace package owning the supplied source file rather than assuming the repository root exposes `typescript`.
