@@ -3,7 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from cydra.source_provider import ObservationStrength, SourceObservationKind
+from cydra.source_ingestion import project_source_observations
+from cydra.source_provider import ObservationStrength, SourceObservation, SourceObservationKind
 from cydra.typescript_provider import SourceProviderUnavailable, TypeScriptCompilerProvider
 
 
@@ -66,3 +67,25 @@ def test_typescript_provider_fails_closed_when_compiler_is_unavailable(monkeypat
 
     with pytest.raises(SourceProviderUnavailable, match="native API"):
         tuple(provider.observe(["src/app.ts"], {"src/app.ts": "export const x = 1;"}))
+
+
+def test_call_observation_is_preserved_without_inventing_call_edge():
+    observation = SourceObservation(
+        observation_id="call:src/a.ts:3:send",
+        kind=SourceObservationKind.CALL,
+        path="src/a.ts",
+        name="send",
+        attributes={"expression": "send"},
+        provider="typescript-compiler",
+        tool="typescript-compiler-api",
+        tool_version="6.0.3",
+        strength=ObservationStrength.COMPILER,
+        provenance=("sha256:test",),
+    )
+
+    system = project_source_observations((observation,))
+    node = system.nodes[observation.observation_id]
+    assert node.kind == "observation"
+    assert node.attributes["source_observation_kind"] == "call"
+    assert node.attributes["strength"] == "compiler"
+    assert system.edges == []
