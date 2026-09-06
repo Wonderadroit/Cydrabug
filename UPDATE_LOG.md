@@ -1,5 +1,31 @@
 # CYDRA UPDATE LOG
 
+## 2026-09-06 — source-observation-canonical-projection
+
+### Change
+Hardened the normalized source-observation to canonical SystemModel boundary for source facts that do not yet have a dedicated canonical node kind.
+
+### Boundary
+`SourceObservation → canonical SystemModel`
+
+### Why
+The live ENS experiment reached compiler-backed observations but exposed a mismatch: the TypeScript provider emits `call` facts, while the canonical model deliberately has no generic `call` node kind. Dropping those facts would lose evidence; inventing caller/callee edges would overstate compiler evidence because the current observer does not yet establish both identities.
+
+### Implementation
+- Canonical projection now maps `call` source observations to `observation` nodes while preserving `source_observation_kind=call`.
+- Type observations and other explicit source kinds are mapped only where the canonical model already has a semantically compatible representation.
+- Unknown future source kinds fail closed rather than being silently coerced.
+- Added regression coverage proving a compiler-backed call fact is preserved without inventing a call edge.
+
+### Safety semantics
+A source fact is not promoted into a stronger semantic relationship merely to satisfy the canonical schema. Call observations remain compiler-backed observations until a provider establishes the relevant caller/callee identities and an explicit relationship.
+
+### Live-contest exercise
+This boundary is exercised by the ENS TypeScript reconstruction over the frozen 1,746-file inventory.
+
+### Validation status
+The canonical projection repair and regression test are committed on `live-immunefi-work`. The full ENS runtime experiment must be rerun before claiming observation, relationship, or model coverage. ENS exact audited-source identity remains unresolved; this remains source reconstruction work only.
+
 ## 2026-09-06 — typescript-workspace-resolution
 
 ### Change
