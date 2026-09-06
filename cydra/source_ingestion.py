@@ -1,7 +1,7 @@
 """Projection of normalized source observations into CYDRA's canonical model."""
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 
 from .source_provider import SourceObservation, SourceProvider
 from .system_model import Edge, Node, SystemModel
@@ -14,18 +14,24 @@ _CANONICAL_KIND_MAP = {
     "class": "class",
     "type": "observation",
     "import": "import",
-    "export": "export",
+    "export": "observation",
     "entry_point": "entry_point",
     "state": "state_variable",
     "authorization": "authorization",
     "external_boundary": "trust_boundary",
+    # Calls are source-level facts. Until a provider establishes caller and
+    # callee identities, preserve the fact as an observation rather than
+    # inventing an executable edge or a language-specific canonical kind.
     "call": "observation",
     "data_flow": "data_flow",
 }
 
 
-def project_source_observations(observations: Iterable[SourceObservation], system: SystemModel | None = None) -> SystemModel:
-    """Ingest observations and only project relationships explicitly established by providers."""
+def project_source_observations(
+    observations: Iterable[SourceObservation],
+    system: SystemModel | None = None,
+) -> SystemModel:
+    """Ingest normalized facts without inventing semantic relationships."""
     system = system or SystemModel()
     materialized = tuple(observations)
 
@@ -33,7 +39,9 @@ def project_source_observations(observations: Iterable[SourceObservation], syste
         attributes = dict(observation.attributes)
         canonical_kind = _CANONICAL_KIND_MAP.get(observation.kind.value)
         if canonical_kind is None:
-            raise ValueError(f"unsupported source observation kind: {observation.kind.value}")
+            raise ValueError(
+                f"unsupported source observation kind: {observation.kind.value}"
+            )
         if canonical_kind != observation.kind.value:
             attributes["source_observation_kind"] = observation.kind.value
         attributes.update(
@@ -48,12 +56,22 @@ def project_source_observations(observations: Iterable[SourceObservation], syste
         if observation.tool_version is not None:
             attributes["tool_version"] = observation.tool_version
         if observation.observation_id not in system.nodes:
-            system.add_node(Node(observation.observation_id, canonical_kind, observation.name, attributes))
+            system.add_node(
+                Node(
+                    observation.observation_id,
+                    canonical_kind,
+                    observation.name,
+                    attributes,
+                )
+            )
 
     node_ids = {observation.observation_id for observation in materialized}
     for observation in materialized:
         for relationship in observation.relationships:
-            if relationship.target_observation_id not in node_ids and relationship.target_observation_id not in system.nodes:
+            if (
+                relationship.target_observation_id not in node_ids
+                and relationship.target_observation_id not in system.nodes
+            ):
                 raise ValueError(
                     "source relationship target is not present in the observation/model set: "
                     f"{relationship.target_observation_id}"
@@ -76,6 +94,11 @@ def project_source_observations(observations: Iterable[SourceObservation], syste
     return system
 
 
-def ingest_source_provider(provider: SourceProvider, paths: Iterable[str], sources: Mapping[str, str], system: SystemModel | None = None) -> SystemModel:
+def ingest_source_provider(
+    provider: SourceProvider,
+    paths: Iterable[str],
+    sources: dict[str, str],
+    system: SystemModel | None = None,
+) -> SystemModel:
     """Run one source provider and project its normalized facts into the model."""
     return project_source_observations(provider.observe(paths, sources), system)
